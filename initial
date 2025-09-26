@@ -1,0 +1,55 @@
+Sub BuildPrevAndCurrDictionaries()
+    Dim wsPrev As Worksheet, wsCurr As Worksheet
+    Dim lastRowPrev As Long, lastRowCurr As Long
+    Dim i As Long
+    Dim key As String, valueStr As String
+    Dim prev As Object, curr As Object
+    Dim dictKey As Variant   ' <-- Use Variant for looping keys
+    
+    ' Create dictionaries
+    Set prev = CreateObject("Scripting.Dictionary")
+    Set curr = CreateObject("Scripting.Dictionary")
+    
+    ' Set worksheets
+    Set wsPrev = ThisWorkbook.Sheets("PrevOpps")
+    Set wsCurr = ThisWorkbook.Sheets("CurrOpps")
+    
+    ' Find last rows
+    lastRowPrev = wsPrev.Cells(wsPrev.Rows.Count, "D").End(xlUp).Row
+    lastRowCurr = wsCurr.Cells(wsCurr.Rows.Count, "D").End(xlUp).Row
+    
+    ' === Build prev dictionary ===
+    For i = 2 To lastRowPrev
+        key = Trim(wsPrev.Cells(i, "D").Value) & "_" & Trim(wsPrev.Cells(i, "P").Value)
+        valueStr = Join(Array(wsPrev.Cells(i, "S").Value, _
+                              wsPrev.Cells(i, "X").Value, _
+                              wsPrev.Cells(i, "AA").Value, _
+                              wsPrev.Cells(i, "AC").Value), "|")
+        prev(key) = valueStr
+    Next i
+    
+    ' === Build curr dictionary ===
+    For i = 2 To lastRowCurr
+        key = Trim(wsCurr.Cells(i, "D").Value) & "_" & Trim(wsCurr.Cells(i, "P").Value)
+        valueStr = Join(Array(wsCurr.Cells(i, "S").Value, _
+                              wsCurr.Cells(i, "X").Value, _
+                              wsCurr.Cells(i, "AA").Value, _
+                              wsCurr.Cells(i, "AC").Value), "|")
+        curr(key) = valueStr
+    Next i
+    
+    ' === Print dictionaries ===
+    Debug.Print "=== PREV Dictionary ==="
+    For Each dictKey In prev.Keys
+        Debug.Print dictKey & " -> " & prev(dictKey)
+    Next dictKey
+    
+    Debug.Print "=== CURR Dictionary ==="
+    For Each dictKey In curr.Keys
+        Debug.Print dictKey & " -> " & curr(dictKey)
+    Next dictKey
+    
+    ' === Call the check procedure ===
+    Call CheckDictionaries(prev, curr)
+End Sub
+
