@@ -1,0 +1,119 @@
+Option Explicit
+
+Sub CheckDictionaries(prev As Object, curr As Object)
+    Dim wsReport As Worksheet, wsPrev As Worksheet, wsCurr As Worksheet
+    Dim dictKey As Variant
+    Dim reportRow As Long
+    Dim valsPrev As Variant, valsCurr As Variant
+    Dim foundRow As Long
+    Dim lastRowPrev As Long, lastRowCurr As Long
+    Dim colCount As Long
+    Dim j As Long
+    
+    ' Source sheets
+    Set wsPrev = ThisWorkbook.Sheets("PrevOpps")
+    Set wsCurr = ThisWorkbook.Sheets("CurrOpps")
+    colCount = wsPrev.Cells(1, wsPrev.Columns.Count).End(xlToLeft).Column
+    
+    ' Create/clear the Report sheet
+    On Error Resume Next
+    Set wsReport = ThisWorkbook.Sheets("Report")
+    On Error GoTo 0
+    If wsReport Is Nothing Then
+        Set wsReport = ThisWorkbook.Sheets.Add
+        wsReport.Name = "Report"
+    Else
+        wsReport.Cells.Clear
+    End If
+    
+    ' Copy header from prev
+    wsPrev.Rows(1).Resize(1, colCount).Copy wsReport.Rows(1)
+    
+    ' Add extra headers for previous values
+    wsReport.Cells(1, colCount + 1).Value = "Prev S"
+    wsReport.Cells(1, colCount + 2).Value = "Prev X"
+    wsReport.Cells(1, colCount + 3).Value = "Prev AA"
+    wsReport.Cells(1, colCount + 4).Value = "Prev AC"
+    
+    reportRow = 2
+    
+    lastRowPrev = wsPrev.Cells(wsPrev.Rows.Count, "D").End(xlUp).Row
+    lastRowCurr = wsCurr.Cells(wsCurr.Rows.Count, "D").End(xlUp).Row
+    
+    ' === Step 1: Loop through curr ===
+    For Each dictKey In curr.Keys
+        If prev.Exists(dictKey) Then
+            ' Key exists in both
+            If prev(dictKey) = curr(dictKey) Then
+                ' identical ? skip
+            Else
+                ' different ? copy row from curr, highlight changed fields yellow
+                foundRow = FindRowByKey(wsCurr, CStr(dictKey), lastRowCurr)
+                If foundRow > 0 Then
+                    wsCurr.Rows(foundRow).Resize(1, colCount).Copy wsReport.Rows(reportRow)
+                    
+                    valsPrev = Split(prev(dictKey), "|")
+                    valsCurr = Split(curr(dictKey), "|")
+                    
+                    ' Column index map: S=19, X=24, AA=27, AC=29
+                    For j = 0 To UBound(valsCurr)
+                        Select Case j
+                            Case 0
+                                wsReport.Cells(reportRow, 19).Interior.Color = IIf(valsCurr(j) <> valsPrev(j), vbYellow, xlNone)
+                                wsReport.Cells(reportRow, colCount + 1).Value = valsPrev(j) ' Prev S
+                            Case 1
+                                wsReport.Cells(reportRow, 24).Interior.Color = IIf(valsCurr(j) <> valsPrev(j), vbYellow, xlNone)
+                                wsReport.Cells(reportRow, colCount + 2).Value = valsPrev(j) ' Prev X
+                            Case 2
+                                wsReport.Cells(reportRow, 27).Interior.Color = IIf(valsCurr(j) <> valsPrev(j), vbYellow, xlNone)
+                                wsReport.Cells(reportRow, colCount + 3).Value = valsPrev(j) ' Prev AA
+                            Case 3
+                                wsReport.Cells(reportRow, 29).Interior.Color = IIf(valsCurr(j) <> valsPrev(j), vbYellow, xlNone)
+                                wsReport.Cells(reportRow, colCount + 4).Value = valsPrev(j) ' Prev AC
+                        End Select
+                    Next j
+                    
+                    reportRow = reportRow + 1
+                End If
+            End If
+        Else
+            ' New key in curr ? copy row, highlight red
+            foundRow = FindRowByKey(wsCurr, CStr(dictKey), lastRowCurr)
+            If foundRow > 0 Then
+                wsCurr.Rows(foundRow).Resize(1, colCount).Copy wsReport.Rows(reportRow)
+                wsReport.Rows(reportRow).Interior.Color = vbRed
+                reportRow = reportRow + 1
+            End If
+        End If
+    Next dictKey
+    
+    ' === Step 2: Keys in prev but missing in curr ===
+    For Each dictKey In prev.Keys
+        If Not curr.Exists(dictKey) Then
+            foundRow = FindRowByKey(wsPrev, CStr(dictKey), lastRowPrev)
+            If foundRow > 0 Then
+                wsPrev.Rows(foundRow).Resize(1, colCount).Copy wsReport.Rows(reportRow)
+                wsReport.Rows(reportRow).Interior.Color = RGB(255, 165, 0) ' Orange
+                reportRow = reportRow + 1
+            End If
+        End If
+    Next dictKey
+    
+    ' Readability
+    wsReport.Columns.AutoFit
+End Sub
+
+' === Helper to find row by dictionary key (D + P) ===
+Function FindRowByKey(ws As Worksheet, ByVal keyText As String, ByVal lastRow As Long) As Long
+    Dim i As Long
+    Dim testKey As String
+    
+    For i = 2 To lastRow
+        testKey = Trim$(CStr(ws.Cells(i, "D").Value)) & "_" & Trim$(CStr(ws.Cells(i, "P").Value))
+        If testKey = keyText Then
+            FindRowByKey = i
+            Exit Function
+        End If
+    Next i
+    FindRowByKey = 0
+End Function
