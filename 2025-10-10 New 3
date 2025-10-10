@@ -1,0 +1,221 @@
+Option Explicit
+
+Sub BuildPrevAndCurrDictionaries()
+    Dim wsPrev As Worksheet, wsCurr As Worksheet
+    Dim lastRowPrev As Long, lastRowCurr As Long
+    Dim i As Long
+    Dim key As String, valueStr As String
+    Dim prev As Object, curr As Object
+
+    ' Create dictionaries
+    Set prev = CreateObject("Scripting.Dictionary")
+    Set curr = CreateObject("Scripting.Dictionary")
+
+    ' Set worksheet references
+    Set wsPrev = ThisWorkbook.Sheets("PrevOpps")
+    Set wsCurr = ThisWorkbook.Sheets("CurrOpps")
+
+    ' Find last rows
+    lastRowPrev = wsPrev.Cells(wsPrev.Rows.Count, "D").End(xlUp).Row
+    lastRowCurr = wsCurr.Cells(wsCurr.Rows.Count, "D").End(xlUp).Row
+
+    ' === Build prev dictionary ===
+    For i = 2 To lastRowPrev
+        key = Trim(wsPrev.Cells(i, "D").Value) & "_" & Trim(wsPrev.Cells(i, "P").Value)
+        valueStr = Join(Array( _
+                    ParseNumber(wsPrev.Cells(i, "S").Value), _
+                    CleanString(wsPrev.Cells(i, "W").Value), _
+                    CleanString(wsPrev.Cells(i, "T").Value), _
+                    CleanString(wsPrev.Cells(i, "O").Value), _
+                    CleanString(wsPrev.Cells(i, "G").Value), _
+                    CleanString(wsPrev.Cells(i, "AA").Value)), "|")
+        prev(key) = valueStr
+    Next i
+
+    ' === Build curr dictionary ===
+    For i = 2 To lastRowCurr
+        key = Trim(wsCurr.Cells(i, "D").Value) & "_" & Trim(wsCurr.Cells(i, "P").Value)
+        valueStr = Join(Array( _
+                    ParseNumber(wsCurr.Cells(i, "S").Value), _
+                    CleanString(wsCurr.Cells(i, "W").Value), _
+                    CleanString(wsCurr.Cells(i, "T").Value), _
+                    CleanString(wsCurr.Cells(i, "O").Value), _
+                    CleanString(wsCurr.Cells(i, "G").Value), _
+                    CleanString(wsCurr.Cells(i, "AA").Value)), "|")
+        curr(key) = valueStr
+    Next i
+
+    ' === Compare dictionaries ===
+    Call CheckDictionaries(prev, curr)
+End Sub
+
+
+'=== Helper Functions ===
+
+Private Function ParseNumber(ByVal val As Variant) As Double
+    If IsNumeric(val) Then
+        ParseNumber = CDbl(val)
+    ElseIf Trim(val) = "" Then
+        ParseNumber = 0
+    Else
+        val = Replace(val, "$", "")
+        val = Replace(val, ",", "")
+        If IsNumeric(val) Then
+            ParseNumber = CDbl(val)
+        Else
+            ParseNumber = 0
+        End If
+    End If
+End Function
+
+Private Function CleanString(ByVal s As Variant) As String
+    Dim temp As String
+    temp = Trim(CStr(s))
+    temp = Replace(temp, Chr(160), "")  ' remove non-breaking spaces
+    temp = UCase(temp)                  ' ignore case differences
+    CleanString = temp
+End Function
+
+
+
+Option Explicit
+
+Sub CheckDictionaries(prev As Object, curr As Object)
+    Dim wsReport As Worksheet
+    Dim wsCurr As Worksheet
+    Dim key As Variant
+    Dim reportRow As Long
+    Dim valsPrev() As String, valsCurr() As String
+    Dim j As Long, maxIdx As Long
+    Dim prevVal As String, currVal As String
+
+    ' Create or clear report sheet
+    On Error Resume Next
+    Set wsReport = ThisWorkbook.Sheets("Report")
+    On Error GoTo 0
+
+    If wsReport Is Nothing Then
+        Set wsReport = ThisWorkbook.Sheets.Add
+        wsReport.Name = "Report"
+    Else
+        wsReport.Cells.Clear
+    End If
+
+    ' Add headers
+    ThisWorkbook.Sheets("CurrOpps").Rows(1).Copy wsReport.Rows(1)
+
+    Set wsCurr = ThisWorkbook.Sheets("CurrOpps")
+    reportRow = 2
+
+    ' === Compare and mark changes ===
+    For Each key In curr.Keys
+        Dim keyParts() As String
+        keyParts = Split(key, "_")
+        Dim oppID As String, revStream As String
+        oppID = keyParts(0)
+        revStream = keyParts(1)
+
+        Dim currRow As Long
+        currRow = FindRowByKey(wsCurr, oppID, revStream)
+        wsCurr.Rows(currRow).Copy wsReport.Rows(reportRow)
+
+        If prev.Exists(key) Then
+            valsPrev = Split(prev(key), "|")
+            valsCurr = Split(curr(key), "|")
+            maxIdx = UBound(valsCurr)
+
+            ' Compare each column value
+            For j = 0 To maxIdx
+                Select Case j
+                    Case 0  ' S column (numeric)
+                        prevVal = CStr(ParseNumber(valsPrev(j)))
+                        currVal = CStr(ParseNumber(valsCurr(j)))
+                    Case Else  ' all other columns are strings
+                        prevVal = CleanString(valsPrev(j))
+                        currVal = CleanString(valsCurr(j))
+                End Select
+
+                If currVal <> prevVal Then
+                    Select Case j
+                        Case 0: wsReport.Cells(reportRow, 19).Interior.Color = vbYellow   ' S
+                        Case 1: wsReport.Cells(reportRow, 23).Interior.Color = vbYellow   ' W
+                        Case 2: wsReport.Cells(reportRow, 20).Interior.Color = vbYellow   ' T
+                        Case 3: wsReport.Cells(reportRow, 15).Interior.Color = vbYellow   ' O
+                        Case 4: wsReport.Cells(reportRow, 7).Interior.Color = vbYellow    ' G
+                        Case 5: wsReport.Cells(reportRow, 27).Interior.Color = vbYellow   ' AA
+                    End Select
+                End If
+            Next j
+        Else
+            ' New row (exists only in current)
+            wsReport.Rows(reportRow).Interior.Color = RGB(198, 239, 206)
+        End If
+
+        reportRow = reportRow + 1
+    Next key
+
+    ' === Highlight removed rows (in prev but not curr) ===
+    Dim missingRow As Long
+    missingRow = reportRow
+    For Each key In prev.Keys
+        If Not curr.Exists(key) Then
+            Dim keyParts2() As String
+            keyParts2 = Split(key, "_")
+            Dim oppID2 As String, revStream2 As String
+            oppID2 = keyParts2(0)
+            revStream2 = keyParts2(1)
+
+            Dim wsPrev As Worksheet
+            Set wsPrev = ThisWorkbook.Sheets("PrevOpps")
+            Dim prevRow As Long
+            prevRow = FindRowByKey(wsPrev, oppID2, revStream2)
+
+            wsPrev.Rows(prevRow).Copy wsReport.Rows(missingRow)
+            wsReport.Rows(missingRow).Interior.Color = RGB(255, 199, 206)
+            missingRow = missingRow + 1
+        End If
+    Next key
+
+    MsgBox "Comparison complete! Check the 'Report' sheet for highlights.", vbInformation
+End Sub
+
+
+' === Helper: Find row by key (Opp ID + Revenue Stream) ===
+Private Function FindRowByKey(ws As Worksheet, oppID As String, revStream As String) As Long
+    Dim i As Long, lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, "D").End(xlUp).Row
+
+    For i = 2 To lastRow
+        If Trim(ws.Cells(i, "D").Value) = oppID And Trim(ws.Cells(i, "P").Value) = revStream Then
+            FindRowByKey = i
+            Exit Function
+        End If
+    Next i
+    FindRowByKey = 0
+End Function
+
+
+' === Copy of helper functions (for isolation) ===
+Private Function ParseNumber(ByVal val As Variant) As Double
+    If IsNumeric(val) Then
+        ParseNumber = CDbl(val)
+    ElseIf Trim(val) = "" Then
+        ParseNumber = 0
+    Else
+        val = Replace(val, "$", "")
+        val = Replace(val, ",", "")
+        If IsNumeric(val) Then
+            ParseNumber = CDbl(val)
+        Else
+            ParseNumber = 0
+        End If
+    End If
+End Function
+
+Private Function CleanString(ByVal s As Variant) As String
+    Dim temp As String
+    temp = Trim(CStr(s))
+    temp = Replace(temp, Chr(160), "")  ' remove non-breaking spaces
+    temp = UCase(temp)                  ' ignore case differences
+    CleanString = temp
+End Function
