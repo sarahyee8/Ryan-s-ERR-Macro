@@ -1,0 +1,248 @@
+Option Explicit
+
+Sub CheckDictionaries(prev As Object, curr As Object)
+    Dim wsReport As Worksheet, wsPrev As Worksheet, wsCurr As Worksheet
+    Dim dictKey As Variant
+    Dim reportRow As Long
+    Dim valsPrev As Variant, valsCurr As Variant
+    Dim foundRow As Long
+    Dim lastRowPrev As Long, lastRowCurr As Long
+    Dim colCount As Long
+    Dim j As Long
+    Dim prevCols As Variant, prevColHeaders As Variant, changedColHeaders As Variant
+    
+    ' Define columns we are tracking (S,X,AA,AC)
+    prevCols = Array(19, 24, 27, 29) ' column numbers
+    Set wsPrev = ThisWorkbook.Sheets("PrevOpps")
+    Set wsCurr = ThisWorkbook.Sheets("CurrOpps")
+    colCount = wsPrev.Cells(1, wsPrev.Columns.Count).End(xlToLeft).Column
+    
+    ReDim prevColHeaders(LBound(prevCols) To UBound(prevCols))
+    ReDim changedColHeaders(LBound(prevCols) To UBound(prevCols))
+    
+    For j = LBound(prevCols) To UBound(prevCols)
+        prevColHeaders(j) = "Prev " & wsPrev.Cells(1, prevCols(j)).Value
+        changedColHeaders(j) = "Changed " & wsPrev.Cells(1, prevCols(j)).Value
+    Next j
+    
+    ' Create/clear the Report sheet
+    On Error Resume Next
+    Set wsReport = ThisWorkbook.Sheets("Report")
+    On Error GoTo 0
+    If wsReport Is Nothing Then
+        Set wsReport = ThisWorkbook.Sheets.Add
+        wsReport.Name = "Report"
+    Else
+        wsReport.Cells.Clear
+    End If
+    
+    ' Copy header from prev
+    wsPrev.Rows(1).Resize(1, colCount).Copy wsReport.Rows(1)
+    
+    ' Add extra headers for previous values
+    For j = LBound(prevCols) To UBound(prevCols)
+        wsReport.Cells(1, colCount + j + 1).Value = prevColHeaders(j)
+    Next j
+    
+    ' Add extra headers for changed indicators
+    For j = LBound(prevCols) To UBound(prevCols)
+        wsReport.Cells(1, colCount + UBound(prevCols) + j + 2).Value = changedColHeaders(j)
+    Next j
+    
+    reportRow = 2
+    
+    lastRowPrev = wsPrev.Cells(wsPrev.Rows.Count, "D").End(xlUp).Row
+    lastRowCurr = wsCurr.Cells(wsCurr.Rows.Count, "D").End(xlUp).Row
+    
+    ' === Step 1: Loop through curr ===
+    For Each dictKey In curr.Keys
+        If prev.Exists(dictKey) Then
+            If prev(dictKey) = curr(dictKey) Then
+                ' identical ? skip
+            Else
+                foundRow = FindRowByKey(wsCurr, CStr(dictKey), lastRowCurr)
+                If foundRow > 0 Then
+                    wsCurr.Rows(foundRow).Resize(1, colCount).Copy wsReport.Rows(reportRow)
+                    
+                    valsPrev = Split(prev(dictKey), "|")
+                    valsCurr = Split(curr(dictKey), "|")
+                    
+                    For j = LBound(prevCols) To UBound(prevCols)
+                        ' Highlight changed cells
+                        If valsCurr(j) <> valsPrev(j) Then
+                            wsReport.Cells(reportRow, prevCols(j)).Interior.Color = vbYellow
+                        End If
+                        ' Fill previous value
+                        wsReport.Cells(reportRow, colCount + j + 1).Value = valsPrev(j)
+                        ' Fill TRUE/FALSE change indicator
+                        wsReport.Cells(reportRow, colCount + UBound(prevCols) + j + 2).Value = (valsCurr(j) <> valsPrev(j))
+                    Next j
+                    
+                    reportRow = reportRow + 1
+                End If
+            End If
+        Else
+            ' New key in curr ? copy row, highlight red
+            foundRow = FindRowByKey(wsCurr, CStr(dictKey), lastRowCurr)
+            If foundRow > 0 Then
+                wsCurr.Rows(foundRow).Resize(1, colCount).Copy wsReport.Rows(reportRow)
+                wsReport.Rows(reportRow).Interior.Color = vbRed
+                reportRow = reportRow + 1
+            End If
+        End If
+    Next dictKey
+    
+    ' === Step 2: Keys in prev but missing in curr ===
+    For Each dictKey In prev.Keys
+        If Not curr.Exists(dictKey) Then
+            foundRow = FindRowByKey(wsPrev, CStr(dictKey), lastRowPrev)
+            If foundRow > 0 Then
+                wsPrev.Rows(foundRow).Resize(1, colCount).Copy wsReport.Rows(reportRow)
+                wsReport.Rows(reportRow).Interior.Color = RGB(255, 165, 0) ' Orange
+                reportRow = reportRow + 1
+            End If
+        End If
+    Next dictKey
+    
+    wsReport.Columns.AutoFit
+End Sub
+
+Function FindRowByKey(ws As Worksheet, ByVal keyText As String, ByVal lastRow As Long) As Long
+    Dim i As Long
+    Dim testKey As String
+    
+    For i = 2 To lastRow
+        testKey = Trim$(CStr(ws.Cells(i, "D").Value)) & "_" & Trim$(CStr(ws.Cells(i, "P").Value))
+        If testKey = keyText Then
+            FindRowByKey = i
+            Exit Function
+        End If
+    Next i
+    FindRowByKey = 0
+End Function
+
+
+Option Explicit
+
+Sub CheckDictionaries(prev As Object, curr As Object)
+    Dim wsReport As Worksheet, wsPrev As Worksheet, wsCurr As Worksheet
+    Dim dictKey As Variant
+    Dim reportRow As Long
+    Dim valsPrev As Variant, valsCurr As Variant
+    Dim foundRow As Long
+    Dim lastRowPrev As Long, lastRowCurr As Long
+    Dim colCount As Long
+    Dim j As Long
+    Dim prevCols As Variant, prevColHeaders As Variant, changedColHeaders As Variant
+    
+    ' Define columns we are tracking (S,X,AA,AC)
+    prevCols = Array(19, 24, 27, 29) ' column numbers
+    Set wsPrev = ThisWorkbook.Sheets("PrevOpps")
+    Set wsCurr = ThisWorkbook.Sheets("CurrOpps")
+    colCount = wsPrev.Cells(1, wsPrev.Columns.Count).End(xlToLeft).Column
+    
+    ReDim prevColHeaders(LBound(prevCols) To UBound(prevCols))
+    ReDim changedColHeaders(LBound(prevCols) To UBound(prevCols))
+    
+    For j = LBound(prevCols) To UBound(prevCols)
+        prevColHeaders(j) = "Prev " & wsPrev.Cells(1, prevCols(j)).Value
+        changedColHeaders(j) = "Changed " & wsPrev.Cells(1, prevCols(j)).Value
+    Next j
+    
+    ' Create/clear the Report sheet
+    On Error Resume Next
+    Set wsReport = ThisWorkbook.Sheets("Report")
+    On Error GoTo 0
+    If wsReport Is Nothing Then
+        Set wsReport = ThisWorkbook.Sheets.Add
+        wsReport.Name = "Report"
+    Else
+        wsReport.Cells.Clear
+    End If
+    
+    ' Copy header from prev
+    wsPrev.Rows(1).Resize(1, colCount).Copy wsReport.Rows(1)
+    
+    ' Add extra headers for previous values
+    For j = LBound(prevCols) To UBound(prevCols)
+        wsReport.Cells(1, colCount + j + 1).Value = prevColHeaders(j)
+    Next j
+    
+    ' Add extra headers for changed indicators
+    For j = LBound(prevCols) To UBound(prevCols)
+        wsReport.Cells(1, colCount + UBound(prevCols) + j + 2).Value = changedColHeaders(j)
+    Next j
+    
+    reportRow = 2
+    
+    lastRowPrev = wsPrev.Cells(wsPrev.Rows.Count, "D").End(xlUp).Row
+    lastRowCurr = wsCurr.Cells(wsCurr.Rows.Count, "D").End(xlUp).Row
+    
+    ' === Step 1: Loop through curr ===
+    For Each dictKey In curr.Keys
+        If prev.Exists(dictKey) Then
+            If prev(dictKey) = curr(dictKey) Then
+                ' identical ? skip
+            Else
+                foundRow = FindRowByKey(wsCurr, CStr(dictKey), lastRowCurr)
+                If foundRow > 0 Then
+                    wsCurr.Rows(foundRow).Resize(1, colCount).Copy wsReport.Rows(reportRow)
+                    
+                    valsPrev = Split(prev(dictKey), "|")
+                    valsCurr = Split(curr(dictKey), "|")
+                    
+                    For j = LBound(prevCols) To UBound(prevCols)
+                        ' Highlight changed cells
+                        If valsCurr(j) <> valsPrev(j) Then
+                            wsReport.Cells(reportRow, prevCols(j)).Interior.Color = vbYellow
+                        End If
+                        ' Fill previous value
+                        wsReport.Cells(reportRow, colCount + j + 1).Value = valsPrev(j)
+                        ' Fill TRUE/FALSE change indicator
+                        wsReport.Cells(reportRow, colCount + UBound(prevCols) + j + 2).Value = (valsCurr(j) <> valsPrev(j))
+                    Next j
+                    
+                    reportRow = reportRow + 1
+                End If
+            End If
+        Else
+            ' New key in curr ? copy row, highlight red
+            foundRow = FindRowByKey(wsCurr, CStr(dictKey), lastRowCurr)
+            If foundRow > 0 Then
+                wsCurr.Rows(foundRow).Resize(1, colCount).Copy wsReport.Rows(reportRow)
+                wsReport.Rows(reportRow).Interior.Color = vbRed
+                reportRow = reportRow + 1
+            End If
+        End If
+    Next dictKey
+    
+    ' === Step 2: Keys in prev but missing in curr ===
+    For Each dictKey In prev.Keys
+        If Not curr.Exists(dictKey) Then
+            foundRow = FindRowByKey(wsPrev, CStr(dictKey), lastRowPrev)
+            If foundRow > 0 Then
+                wsPrev.Rows(foundRow).Resize(1, colCount).Copy wsReport.Rows(reportRow)
+                wsReport.Rows(reportRow).Interior.Color = RGB(255, 165, 0) ' Orange
+                reportRow = reportRow + 1
+            End If
+        End If
+    Next dictKey
+    
+    wsReport.Columns.AutoFit
+End Sub
+
+Function FindRowByKey(ws As Worksheet, ByVal keyText As String, ByVal lastRow As Long) As Long
+    Dim i As Long
+    Dim testKey As String
+    
+    For i = 2 To lastRow
+        testKey = Trim$(CStr(ws.Cells(i, "D").Value)) & "_" & Trim$(CStr(ws.Cells(i, "P").Value))
+        If testKey = keyText Then
+            FindRowByKey = i
+            Exit Function
+        End If
+    Next i
+    FindRowByKey = 0
+End Function
+
+
