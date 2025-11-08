@@ -1,29 +1,23 @@
 Sub BuildPrevAndCurrDictionaries()
     Dim wsPrev As Worksheet, wsCurr As Worksheet
-    Dim wsPrevAct As Worksheet, wsCurrAct As Worksheet
     Dim lastRowPrev As Long, lastRowCurr As Long
-    Dim lastRowPrevAct As Long, lastRowCurrAct As Long
     Dim i As Long
     Dim key As String, valueStr As String
     Dim prev As Object, curr As Object
     Dim dictKey As Variant
-
+    
     ' Create dictionaries
     Set prev = CreateObject("Scripting.Dictionary")
     Set curr = CreateObject("Scripting.Dictionary")
-
+    
     ' Set worksheets
     Set wsPrev = ThisWorkbook.Sheets("PrevOpps")
     Set wsCurr = ThisWorkbook.Sheets("CurrOpps")
-    Set wsPrevAct = ThisWorkbook.Sheets("PrevActuals")
-    Set wsCurrAct = ThisWorkbook.Sheets("CurrActuals")
-
+    
     ' Find last rows
     lastRowPrev = wsPrev.Cells(wsPrev.Rows.Count, "D").End(xlUp).Row
     lastRowCurr = wsCurr.Cells(wsCurr.Rows.Count, "D").End(xlUp).Row
-    lastRowPrevAct = wsPrevAct.Cells(wsPrevAct.Rows.Count, "T").End(xlUp).Row
-    lastRowCurrAct = wsCurrAct.Cells(wsCurrAct.Rows.Count, "T").End(xlUp).Row
-
+    
     ' === Build prev dictionary ===
     For i = 2 To lastRowPrev
         key = Trim(wsPrev.Cells(i, "D").Value) & "_" & Trim(wsPrev.Cells(i, "P").Value)
@@ -37,7 +31,7 @@ Sub BuildPrevAndCurrDictionaries()
                       CleanString(wsPrev.Cells(i, "AA").Value)), "|")
         prev(key) = valueStr
     Next i
-
+    
     ' === Build curr dictionary ===
     For i = 2 To lastRowCurr
         key = Trim(wsCurr.Cells(i, "D").Value) & "_" & Trim(wsCurr.Cells(i, "P").Value)
@@ -51,41 +45,63 @@ Sub BuildPrevAndCurrDictionaries()
                       CleanString(wsCurr.Cells(i, "AA").Value)), "|")
         curr(key) = valueStr
     Next i
-
+    
     ' Call comparison procedure
-    Call CheckDictionaries(prev, curr, wsPrev, wsCurr, wsPrevAct, wsCurrAct)
+    Call CheckDictionaries(prev, curr)
 End Sub
 
 
-Sub CheckDictionaries(prev As Object, curr As Object, _
-                      wsPrev As Worksheet, wsCurr As Worksheet, _
-                      wsPrevAct As Worksheet, wsCurrAct As Worksheet)
-    Dim wsReport As Worksheet
+' === COMPARISON AND REPORT ===
+Sub CheckDictionaries(prev As Object, curr As Object)
+    Dim wsReport As Worksheet, wsPrev As Worksheet, wsCurr As Worksheet
     Dim dictKey As Variant
     Dim reportRow As Long
     Dim valsPrev As Variant, valsCurr As Variant
-    Dim foundRow As Long, foundRowAct As Long
-    Dim lastRowPrev As Long, lastRowCurr As Long, lastRowCurrAct As Long
-    Dim colCount As Long, colCountAct As Long
+    Dim foundRow As Long
+    Dim lastRowPrev As Long, lastRowCurr As Long
+    Dim colCount As Long, changeCol As Long, reasonCol As Long
     Dim j As Long, maxIdx As Long
     Dim prevS As Double, currS As Double, changeVal As Double
     Dim prevVal As String, currVal As String
     Dim changedCount As Long, newCount As Long, removedCount As Long
     Dim changeReason As String
-    Dim key As String, oppId As String, revStream As String
-    Dim errEndUser As String
-    Dim foundInActuals As Boolean
-    Dim changeCol As Long, reasonCol As Long
-
-    ' Initialize
+    
+    ' === Actuals variables ===
+    Dim wsCurrActuals As Worksheet, wsPrevActuals As Worksheet
+    Dim lastRowCurrAct As Long
+    Dim actDict As Object
+    Dim actKey As String
+    Dim actualsColStart As Long
+    Dim i As Long
+    Dim actRow As Long, actColCount As Long, numCols As Long
+    
+    ' Initialize counters
     changedCount = 0: newCount = 0: removedCount = 0
+    
+    ' Source sheets
+    Set wsPrev = ThisWorkbook.Sheets("PrevOpps")
+    Set wsCurr = ThisWorkbook.Sheets("CurrOpps")
     colCount = wsPrev.Cells(1, wsPrev.Columns.Count).End(xlToLeft).Column
-    colCountAct = wsCurrAct.Cells(1, wsCurrAct.Columns.Count).End(xlToLeft).Column
-    lastRowPrev = wsPrev.Cells(wsPrev.Rows.Count, "D").End(xlUp).Row
-    lastRowCurr = wsCurr.Cells(wsCurr.Rows.Count, "D").End(xlUp).Row
-    lastRowCurrAct = wsCurrAct.Cells(wsCurrAct.Rows.Count, "T").End(xlUp).Row
-
-    ' Create/clear Report
+    
+    ' === Set up Actuals sheets ===
+    Set wsCurrActuals = ThisWorkbook.Sheets("CurrActuals")
+    Set wsPrevActuals = ThisWorkbook.Sheets("PrevActuals")
+    lastRowCurrAct = wsCurrActuals.Cells(wsCurrActuals.Rows.Count, "T").End(xlUp).Row
+    actualsColStart = wsCurrActuals.Range("T1").Column
+    
+    ' === Build dictionary for CurrActuals ===
+    Set actDict = CreateObject("Scripting.Dictionary")
+    For i = 2 To lastRowCurrAct
+        ' Primary key: Opp ID (T) + Revenue Stream (AI)
+        actKey = Trim(CStr(wsCurrActuals.Cells(i, "T").Value)) & "_" & Trim(CStr(wsCurrActuals.Cells(i, "AI").Value))
+        If Len(Replace(actKey, "_", "")) > 0 Then actDict(actKey) = i
+        
+        ' Fallback key: End User (AD) + Revenue Stream (AI) if not already present
+        actKey = Trim(CStr(wsCurrActuals.Cells(i, "AD").Value)) & "_" & Trim(CStr(wsCurrActuals.Cells(i, "AI").Value))
+        If Len(Replace(actKey, "_", "")) > 0 And Not actDict.Exists(actKey) Then actDict(actKey) = i
+    Next i
+    
+    ' Create/clear the Report sheet
     On Error Resume Next
     Set wsReport = ThisWorkbook.Sheets("Report")
     On Error GoTo 0
@@ -95,31 +111,42 @@ Sub CheckDictionaries(prev As Object, curr As Object, _
     Else
         wsReport.Cells.Clear
     End If
-
-    ' Header
+    
+    ' Copy header from prev
     wsPrev.Rows(1).Resize(1, colCount).Copy wsReport.Rows(1)
+    
+    ' Add trailing headers
     changeCol = colCount + 1
     reasonCol = colCount + 2
     wsReport.Cells(1, changeCol).Value = "Change in Amount"
     wsReport.Cells(1, reasonCol).Value = "Change Reason"
-    wsReport.Cells(1, reasonCol + 1).Value = "Source"
+    wsReport.Cells(1, "AO").Value = "Source Type"
+    
     reportRow = 2
-
+    lastRowPrev = wsPrev.Cells(wsPrev.Rows.Count, "D").End(xlUp).Row
+    lastRowCurr = wsCurr.Cells(wsCurr.Rows.Count, "D").End(xlUp).Row
+    
     ' === Step 1: Loop through keys in curr ===
     For Each dictKey In curr.Keys
         If prev.Exists(dictKey) Then
             If prev(dictKey) <> curr(dictKey) Then
+                ' Changed row
                 foundRow = FindRowByKey(wsCurr, CStr(dictKey), lastRowCurr)
                 If foundRow > 0 Then
                     wsReport.Rows(reportRow).Resize(1, colCount).Value = _
                         wsCurr.Rows(foundRow).Resize(1, colCount).Value
-
+                    wsReport.Cells(reportRow, "AO").Value = "Forecast"
+                    
                     valsPrev = Split(prev(dictKey), "|")
                     valsCurr = Split(curr(dictKey), "|")
+                    
                     maxIdx = UBound(valsCurr)
                     If UBound(valsPrev) < maxIdx Then maxIdx = UBound(valsPrev)
+                    
+                    ' Initialize changeReason
                     changeReason = ""
-
+                    
+                    ' Compare each tracked field
                     For j = 0 To maxIdx
                         If j = 0 Then
                             prevVal = CStr(ParseNumber(valsPrev(j)))
@@ -128,11 +155,26 @@ Sub CheckDictionaries(prev As Object, curr As Object, _
                             prevVal = CleanString(valsPrev(j))
                             currVal = CleanString(valsCurr(j))
                         End If
+                        
                         If currVal <> prevVal Then
                             changeVal = ParseNumber(valsCurr(0)) - ParseNumber(valsPrev(0))
+                            
                             Select Case j
-                                Case 0: wsReport.Cells(reportRow, 19).Interior.Color = vbYellow
-                                Case 1: wsReport.Cells(reportRow, 23).Interior.Color = vbYellow
+                                Case 0
+                                    wsReport.Cells(reportRow, 19).Interior.Color = vbYellow
+                                    
+                                    If CleanString(valsCurr(2)) = CleanString(valsPrev(2)) Then
+                                        changeReason = "Risk Amount Change: " & valsCurr(1) & " " & _
+                                                        IIf(changeVal >= 0, "+$", "-$") & Format(Abs(changeVal), "#,##0.00")
+                                    End If
+                                Case 1
+                                    wsReport.Cells(reportRow, 23).Interior.Color = vbYellow
+                                    
+                                    If CleanString(valsCurr(2)) <> CleanString(valsPrev(2)) Then
+                                        changeReason = "Risk Status Change: " & valsCurr(1) & " " & _
+                                                        IIf(changeVal >= 0, "+$", "-$") & Format(Abs(changeVal), "#,##0.00") & _
+                                                        " (" & valsPrev(2) & " to " & valsCurr(2) & ")"
+                                    End If
                                 Case 2: wsReport.Cells(reportRow, 20).Interior.Color = vbYellow
                                 Case 3: wsReport.Cells(reportRow, 15).Interior.Color = vbYellow
                                 Case 4: wsReport.Cells(reportRow, 7).Interior.Color = vbYellow
@@ -140,12 +182,17 @@ Sub CheckDictionaries(prev As Object, curr As Object, _
                             End Select
                         End If
                     Next j
-
+                    
+                    ' Change in Amount
                     currS = ParseNumber(valsCurr(0))
                     prevS = ParseNumber(valsPrev(0))
                     changeVal = currS - prevS
                     wsReport.Cells(reportRow, changeCol).Value = changeVal
-                    wsReport.Cells(reportRow, reasonCol + 1).Value = "Forecast"
+                    If changeVal <> 0 Then wsReport.Cells(reportRow, changeCol).Interior.Color = vbYellow
+                    
+                    ' Write Change Reason
+                    wsReport.Cells(reportRow, reasonCol).Value = changeReason
+                    
                     reportRow = reportRow + 1
                     changedCount = changedCount + 1
                 End If
@@ -156,70 +203,87 @@ Sub CheckDictionaries(prev As Object, curr As Object, _
             If foundRow > 0 Then
                 wsReport.Rows(reportRow).Resize(1, colCount).Value = _
                     wsCurr.Rows(foundRow).Resize(1, colCount).Value
-                wsReport.Cells(reportRow, changeCol).Value = ParseNumber(wsCurr.Cells(foundRow, "S").Value)
-                wsReport.Cells(reportRow, reasonCol + 1).Value = "Forecast"
+                wsReport.Cells(reportRow, "AO").Value = "Forecast"
+                
+                valsCurr = Split(curr(dictKey), "|")
+                currS = ParseNumber(valsCurr(0))
+                wsReport.Cells(reportRow, changeCol).Value = currS
+                If currS <> 0 Then wsReport.Cells(reportRow, changeCol).Interior.Color = vbYellow
+                
                 reportRow = reportRow + 1
                 newCount = newCount + 1
             End If
         End If
     Next dictKey
-
-    ' === Step 2: Rows in prev missing from curr (check if invoiced in Actuals) ===
+    
+    ' === Step 2: Rows in prev missing from curr ===
     For Each dictKey In prev.Keys
         If Not curr.Exists(dictKey) Then
-            ' Extract ID + rev stream + end user
-            oppId = Trim$(Split(dictKey, "_")(0))
-            revStream = Trim$(Split(dictKey, "_")(1))
-            foundInActuals = False
-
-            ' Try Opp ID + Rev Stream
-            For i = 2 To lastRowCurrAct
-                If Trim$(wsCurrAct.Cells(i, "T").Value) = oppId And _
-                   Trim$(wsCurrAct.Cells(i, "AI").Value) = revStream Then
-                    foundInActuals = True
-                    foundRowAct = i
-                    Exit For
+            foundRow = FindRowByKey(wsPrev, CStr(dictKey), lastRowPrev)
+            If foundRow > 0 Then
+                Dim oppID As String, revStream As String, endUser As String
+                Dim actMatchKey As String
+                
+                oppID = Trim(wsPrev.Cells(foundRow, "A").Value)
+                revStream = Trim(wsPrev.Cells(foundRow, "P").Value)
+                endUser = Trim(wsPrev.Cells(foundRow, "K").Value)
+                
+                ' === Try to find in CurrActuals ===
+                actRow = 0
+                actMatchKey = oppID & "_" & revStream
+                If actDict.Exists(actMatchKey) Then
+                    actRow = actDict(actMatchKey)
+                Else
+                    actMatchKey = endUser & "_" & revStream
+                    If actDict.Exists(actMatchKey) Then actRow = actDict(actMatchKey)
                 End If
-            Next i
-
-            ' If not found, try ERR End User + Rev Stream
-            If Not foundInActuals Then
-                errEndUser = Trim$(wsPrev.Cells(FindRowByKey(wsPrev, dictKey, lastRowPrev), "K").Value)
-                For i = 2 To lastRowCurrAct
-                    If Trim$(wsCurrAct.Cells(i, "AD").Value) = errEndUser And _
-                       Trim$(wsCurrAct.Cells(i, "AI").Value) = revStream Then
-                        foundInActuals = True
-                        foundRowAct = i
-                        Exit For
+                
+                If actRow > 0 Then
+                    ' ✅ Invoiced (Actuals) — values only copy from T..(last) into Report starting at A
+                    actColCount = wsCurrActuals.Cells(actRow, wsCurrActuals.Columns.Count).End(xlToLeft).Column
+                    If actColCount < actualsColStart Then
+                        ' nothing meaningful in actuals row — skip to treating as removed
+                        actRow = 0
+                    Else
+                        numCols = actColCount - actualsColStart + 1
+                        ' Paste values only into report starting at column A
+                        wsReport.Cells(reportRow, "A").Resize(1, numCols).Value = _
+                            wsCurrActuals.Cells(actRow, actualsColStart).Resize(1, numCols).Value
+                        
+                        wsReport.Cells(reportRow, "AO").Value = "Actuals"
+                        reportRow = reportRow + 1
                     End If
-                Next i
-            End If
-
-            If foundInActuals Then
-                wsReport.Rows(reportRow).Resize(1, colCountAct).Value = _
-                    wsCurrAct.Rows(foundRowAct).Resize(1, colCountAct).Value
-                wsReport.Cells(reportRow, reasonCol + 1).Value = "Actuals"
-                reportRow = reportRow + 1
-            Else
-                foundRow = FindRowByKey(wsPrev, CStr(dictKey), lastRowPrev)
-                If foundRow > 0 Then
+                End If
+                
+                If actRow = 0 Then
+                    ' ❌ Not found in Actuals → treat as removed (forecast)
                     wsReport.Rows(reportRow).Resize(1, colCount).Value = _
                         wsPrev.Rows(foundRow).Resize(1, colCount).Value
-                    wsReport.Rows(reportRow).Interior.Color = RGB(120, 120, 120)
-                    wsReport.Cells(reportRow, reasonCol + 1).Value = "Forecast"
+                    wsReport.Rows(reportRow).Interior.Color = RGB(120, 120, 120) ' DimGray
+                    
+                    valsPrev = Split(prev(dictKey), "|")
+                    prevS = ParseNumber(valsPrev(0))
+                    wsReport.Cells(reportRow, changeCol).Value = -prevS
+                    If prevS <> 0 Then wsReport.Cells(reportRow, changeCol).Interior.Color = vbYellow
+                    
+                    wsReport.Cells(reportRow, "AO").Value = "Forecast"
+                    
                     reportRow = reportRow + 1
                     removedCount = removedCount + 1
                 End If
             End If
         End If
     Next dictKey
-
+    
+    ' Autofit columns
     wsReport.Columns.AutoFit
 End Sub
 
 
+' === HELPER: Find row by key (D + P) ===
 Function FindRowByKey(ws As Worksheet, ByVal keyText As String, ByVal lastRow As Long) As Long
-    Dim i As Long, testKey As String
+    Dim i As Long
+    Dim testKey As String
     For i = 2 To lastRow
         testKey = Trim$(CStr(ws.Cells(i, "D").Value)) & "_" & Trim$(CStr(ws.Cells(i, "P").Value))
         If testKey = keyText Then
@@ -231,6 +295,7 @@ Function FindRowByKey(ws As Worksheet, ByVal keyText As String, ByVal lastRow As
 End Function
 
 
+' === HELPER: Parse numeric values robustly ===
 Private Function ParseNumber(ByVal v As Variant) As Double
     Dim s As String
     s = Trim$(CStr(v))
@@ -246,9 +311,10 @@ Private Function ParseNumber(ByVal v As Variant) As Double
 End Function
 
 
+' === HELPER: Clean strings for comparison ===
 Private Function CleanString(ByVal s As Variant) As String
     Dim temp As String
     temp = Trim(CStr(s))
-    temp = Replace(temp, Chr(160), "")
-    CleanString = UCase(temp)
+    temp = Replace(temp, Chr(160), "")   ' remove non-breaking spaces
+    CleanString = UCase(temp)            ' case-insensitive
 End Function
