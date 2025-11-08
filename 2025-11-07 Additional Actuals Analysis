@@ -180,51 +180,61 @@ Sub CheckDictionaries(prev As Object, curr As Object, actDict As Object)
         End If
     Next dictKey
     
-    ' === Step 2: Rows in PrevOpps missing from CurrOpps ===
-    For Each dictKey In prev.Keys
-        If Not curr.Exists(dictKey) Then
-            foundRow = FindRowByKey(wsPrev, CStr(dictKey), lastRowPrev)
-            If foundRow > 0 Then
-                Dim oppID As String, revStream As String, endUser As String
-                Dim actKey As String, actRow As Long
-                
-                oppID = Trim(wsPrev.Cells(foundRow, "A").Value)
-                revStream = Trim(wsPrev.Cells(foundRow, "P").Value)
-                endUser = Trim(wsPrev.Cells(foundRow, "K").Value)
-                
-                ' Try primary then fallback match
-                If oppID <> "" Then
-                    actKey = oppID & "_" & revStream
-                Else
-                    actKey = endUser & "_" & revStream
-                End If
-                
-                If actDict.Exists(actKey) Then
-                    ' Found in actuals — invoiced
-                    actRow = actDict(actKey)
-                    wsReport.Rows(reportRow).Resize(1, colCount).Value = wsCurrActuals.Rows(actRow).Resize(1, colCount).Value
-                    wsReport.Cells(reportRow, changeCol).Value = ParseNumber(wsCurrActuals.Cells(actRow, "S").Value)
-                    wsReport.Cells(reportRow, reasonCol).Value = "Invoiced in Actuals"
-                    wsReport.Cells(reportRow, colCount + 3).Value = "Actuals"
-                    wsReport.Rows(reportRow).Interior.Color = RGB(198, 239, 206) ' light green
-                Else
-                    ' Not invoiced — lost
-                    wsReport.Rows(reportRow).Resize(1, colCount).Value = wsPrev.Rows(foundRow).Resize(1, colCount).Value
-                    wsReport.Rows(reportRow).Interior.Color = RGB(120, 120, 120)
-                    valsPrev = Split(prev(dictKey), "|")
-                    prevS = ParseNumber(valsPrev(0))
-                    wsReport.Cells(reportRow, changeCol).Value = -prevS
-                    wsReport.Cells(reportRow, reasonCol).Value = "Removed (no invoicing found)"
-                    wsReport.Cells(reportRow, colCount + 3).Value = "Forecast"
-                End If
-                reportRow = reportRow + 1
+    ' === Step 2: Rows in prev missing from curr ===
+For Each dictKey In prev.Keys
+    If Not curr.Exists(dictKey) Then
+        foundRow = FindRowByKey(wsPrev, CStr(dictKey), lastRowPrev)
+        If foundRow > 0 Then
+            
+            ' Try to find it in CurrActuals
+            Dim oppID As String, revStream As String, endUser As String
+            Dim actKey As String, actRow As Long
+            
+            oppID = Trim(wsPrev.Cells(foundRow, "A").Value)
+            revStream = Trim(wsPrev.Cells(foundRow, "P").Value)
+            endUser = Trim(wsPrev.Cells(foundRow, "K").Value)
+            
+            ' Try Opp ID + Rev Stream first
+            If oppID <> "" Then
+                actKey = oppID & "_" & revStream
+            Else
+                ' Fallback: End User + Rev Stream
+                actKey = endUser & "_" & revStream
             End If
+            
+            ' Check if found in CurrActuals
+            If actDict.Exists(actKey) Then
+                actRow = actDict(actKey)
+                
+                ' --- Only bring in from column T onward ---
+                Dim startCol As Long, copyCols As Long
+                startCol = wsCurrActuals.Range("T1").Column
+                copyCols = wsCurrActuals.Cells(1, wsCurrActuals.Columns.Count).End(xlToLeft).Column - startCol + 1
+                
+                wsReport.Cells(reportRow, startCol).Resize(1, copyCols).Value = _
+                    wsCurrActuals.Cells(actRow, startCol).Resize(1, copyCols).Value
+                
+                wsReport.Cells(reportRow, "AO").Value = "Actuals"  ' Tag source
+                wsReport.Rows(reportRow).Interior.Color = RGB(198, 239, 206) ' light green for invoiced
+                
+            Else
+                ' Not invoiced, keep as before
+                wsReport.Rows(reportRow).Resize(1, colCount).Value = _
+                    wsPrev.Rows(foundRow).Resize(1, colCount).Value
+                wsReport.Rows(reportRow).Interior.Color = RGB(120, 120, 120) ' gray
+                
+                valsPrev = Split(prev(dictKey), "|")
+                prevS = ParseNumber(valsPrev(0))
+                wsReport.Cells(reportRow, changeCol).Value = -prevS
+                wsReport.Cells(reportRow, reasonCol).Value = "Removed (no invoicing found)"
+                wsReport.Cells(reportRow, "AO").Value = "Forecast"
+            End If
+            
+            reportRow = reportRow + 1
         End If
-    Next dictKey
-    
-    ' Autofit columns
-    wsReport.Columns.AutoFit
-End Sub
+    End If
+Next dictKey
+
 
 
 ' === HELPER FUNCTIONS ===
