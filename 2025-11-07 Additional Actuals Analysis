@@ -53,7 +53,7 @@ End Sub
 ' === COMPARISON AND REPORT ===
 Sub CheckDictionaries(prev As Object, curr As Object)
     Dim wsReport As Worksheet, wsPrev As Worksheet, wsCurr As Worksheet
-    Dim wsCurrAct As Worksheet, wsPrevAct As Worksheet
+    Dim wsCurrAct As Worksheet
     Dim dictKey As Variant
     Dim reportRow As Long
     Dim valsPrev As Variant, valsCurr As Variant
@@ -73,7 +73,6 @@ Sub CheckDictionaries(prev As Object, curr As Object)
     ' Source sheets
     Set wsPrev = ThisWorkbook.Sheets("PrevOpps")
     Set wsCurr = ThisWorkbook.Sheets("CurrOpps")
-    Set wsPrevAct = ThisWorkbook.Sheets("PrevActuals")
     Set wsCurrAct = ThisWorkbook.Sheets("CurrActuals")
     colCount = wsPrev.Cells(1, wsPrev.Columns.Count).End(xlToLeft).Column
     
@@ -109,7 +108,6 @@ Sub CheckDictionaries(prev As Object, curr As Object)
             If prev(dictKey) <> curr(dictKey) Then
                 foundRow = FindRowByKey(wsCurr, CStr(dictKey), lastRowCurr)
                 If foundRow > 0 Then
-                    ' Copy forecast row (values only)
                     wsReport.Rows(reportRow).Resize(1, colCount).Value = _
                         wsCurr.Rows(foundRow).Resize(1, colCount).Value
                     
@@ -186,27 +184,17 @@ Sub CheckDictionaries(prev As Object, curr As Object)
         If Not curr.Exists(dictKey) Then
             foundRow = FindRowByKey(wsPrev, CStr(dictKey), lastRowPrev)
             If foundRow > 0 Then
-                ' Extract Opp ID, Revenue Stream, End User
-                Dim arrKey() As String
-                Dim oppID As String, revStream As String, endUser As String
-                arrKey = Split(CStr(dictKey), "_")
-                oppID = arrKey(0)
-                revStream = arrKey(1)
-                endUser = CleanString(wsPrev.Cells(foundRow, "K").Value)
+                Dim summedAK As Double
+                summedAK = SumActuals(wsCurrAct, wsPrev.Cells(foundRow, "D").Value, wsPrev.Cells(foundRow, "P").Value, _
+                                      wsPrev.Cells(foundRow, "K").Value)
                 
-                ' Check if exists in CurrActuals
-                Dim foundActRow As Long
-                foundActRow = FindRowByKey_Actuals(wsCurrAct, oppID, revStream, lastRowCurrAct, endUser)
-                
-                If foundActRow > 0 Then
-                    ' Copy Actuals line values only (columns T onwards) into Report
-                    Dim lastColAct As Long
-                    lastColAct = wsCurrAct.Cells(foundActRow, wsCurrAct.Columns.Count).End(xlToLeft).Column
-                    wsReport.Cells(reportRow, 1).Resize(1, lastColAct - 19).Value = _
-                        wsCurrAct.Cells(foundActRow, 20).Resize(1, lastColAct - 19).Value
+                If summedAK <> 0 Then
+                    ' Copy PrevOpps row as template, replace amount with summed actuals
+                    wsReport.Rows(reportRow).Resize(1, colCount).Value = wsPrev.Rows(foundRow).Resize(1, colCount).Value
+                    wsReport.Cells(reportRow, "S").Value = summedAK  ' Replace amount column with summed value
                     wsReport.Cells(reportRow, reasonCol + 1).Value = "Actuals"
                 Else
-                    ' Not in CurrActuals — mark as removed Forecast
+                    ' Not in CurrActuals — mark as removed
                     wsReport.Rows(reportRow).Resize(1, colCount).Value = _
                         wsPrev.Rows(foundRow).Resize(1, colCount).Value
                     wsReport.Rows(reportRow).Interior.Color = RGB(120, 120, 120)
@@ -226,6 +214,31 @@ Sub CheckDictionaries(prev As Object, curr As Object)
     wsReport.Columns.AutoFit
 End Sub
 
+' === Helper to sum all matching Actuals for a given Opp/RevStream or fallback ===
+Function SumActuals(wsAct As Worksheet, oppID As Variant, revStream As Variant, errUser As Variant) As Double
+    Dim i As Long, lastRow As Long
+    Dim matchAK As Double
+    Dim oppIDStr As String, revStr As String, errUserStr As String
+    Dim valAK As Double
+    
+    lastRow = wsAct.Cells(wsAct.Rows.Count, "T").End(xlUp).Row
+    oppIDStr = Trim(CStr(oppID))
+    revStr = Trim(CStr(revStream))
+    errUserStr = Trim(CStr(errUser))
+    
+    matchAK = 0
+    For i = 2 To lastRow
+        If (Trim(CStr(wsAct.Cells(i, "T").Value)) <> "" And Trim(CStr(wsAct.Cells(i, "T").Value)) = oppIDStr And _
+            Trim(CStr(wsAct.Cells(i, "AI").Value)) = revStr) _
+           Or (Trim(CStr(wsAct.Cells(i, "T").Value)) = "" And Trim(CStr(wsAct.Cells(i, "AD").Value)) = errUserStr And _
+               Trim(CStr(wsAct.Cells(i, "AI").Value)) = revStr) Then
+           
+           valAK = ParseNumber(wsAct.Cells(i, "AK").Value)
+           matchAK = matchAK + valAK
+        End If
+    Next i
+    SumActuals = matchAK
+End Function
 
 ' === HELPER: Find row by key (D + P) ===
 Function FindRowByKey(ws As Worksheet, ByVal keyText As String, ByVal lastRow As Long) As Long
@@ -239,34 +252,6 @@ Function FindRowByKey(ws As Worksheet, ByVal keyText As String, ByVal lastRow As
     Next i
     FindRowByKey = 0
 End Function
-
-
-' === HELPER: Find row by key for Actuals (T + AI or fallback AD + AI) ===
-Function FindRowByKey_Actuals(ws As Worksheet, ByVal oppID As String, ByVal revenueStream As String, ByVal lastRow As Long, ByVal endUser As String) As Long
-    Dim i As Long, testKey As String, testEndUserKey As String
-    
-    ' First try: Opp ID + Revenue Stream (T + AI)
-    For i = 2 To lastRow
-        testKey = Trim$(CStr(ws.Cells(i, "T").Value)) & "_" & Trim$(CStr(ws.Cells(i, "AI").Value))
-        If testKey = Trim(oppID & "_" & revenueStream) Then
-            FindRowByKey_Actuals = i
-            Exit Function
-        End If
-    Next i
-    
-    ' Second try: ERR End User + Revenue Stream (AD + AI)
-    For i = 2 To lastRow
-        testEndUserKey = Trim$(CStr(ws.Cells(i, "AD").Value)) & "_" & Trim$(CStr(ws.Cells(i, "AI").Value))
-        If testEndUserKey = Trim(endUser & "_" & revenueStream) Then
-            FindRowByKey_Actuals = i
-            Exit Function
-        End If
-    Next i
-    
-    ' Not found
-    FindRowByKey_Actuals = 0
-End Function
-
 
 ' === HELPER: Parse numeric values robustly ===
 Private Function ParseNumber(ByVal v As Variant) As Double
@@ -282,7 +267,6 @@ Private Function ParseNumber(ByVal v As Variant) As Double
         On Error GoTo 0
     End If
 End Function
-
 
 ' === HELPER: Clean strings for comparison ===
 Private Function CleanString(ByVal s As Variant) As String
