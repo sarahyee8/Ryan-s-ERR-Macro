@@ -49,11 +49,10 @@ Sub BuildPrevAndCurrDictionaries()
     Call CheckDictionaries(prev, curr)
 End Sub
 
-
 ' === COMPARISON AND REPORT ===
 Sub CheckDictionaries(prev As Object, curr As Object)
     Dim wsReport As Worksheet, wsPrev As Worksheet, wsCurr As Worksheet
-    Dim wsCurrAct As Worksheet
+    Dim wsCurrAct As Worksheet, wsPrevAct As Worksheet
     Dim dictKey As Variant
     Dim reportRow As Long
     Dim valsPrev As Variant, valsCurr As Variant
@@ -65,9 +64,6 @@ Sub CheckDictionaries(prev As Object, curr As Object)
     Dim prevVal As String, currVal As String
     Dim changedCount As Long, newCount As Long, removedCount As Long
     Dim changeReason As String
-    Dim oppId As String, revStream As String, errUser As String
-    Dim foundActRows() As Long
-    Dim iAct As Long
     
     ' Initialize counters
     changedCount = 0: newCount = 0: removedCount = 0
@@ -75,6 +71,7 @@ Sub CheckDictionaries(prev As Object, curr As Object)
     ' Source sheets
     Set wsPrev = ThisWorkbook.Sheets("PrevOpps")
     Set wsCurr = ThisWorkbook.Sheets("CurrOpps")
+    Set wsPrevAct = ThisWorkbook.Sheets("PrevActuals")
     Set wsCurrAct = ThisWorkbook.Sheets("CurrActuals")
     colCount = wsPrev.Cells(1, wsPrev.Columns.Count).End(xlToLeft).Column
     
@@ -110,7 +107,7 @@ Sub CheckDictionaries(prev As Object, curr As Object)
             If prev(dictKey) <> curr(dictKey) Then
                 foundRow = FindRowByKey(wsCurr, CStr(dictKey), lastRowCurr)
                 If foundRow > 0 Then
-                    ' Copy forecast row
+                    ' Copy forecast row (values only)
                     wsReport.Rows(reportRow).Resize(1, colCount).Value = _
                         wsCurr.Rows(foundRow).Resize(1, colCount).Value
                     
@@ -132,8 +129,19 @@ Sub CheckDictionaries(prev As Object, curr As Object)
                         If currVal <> prevVal Then
                             changeVal = ParseNumber(valsCurr(0)) - ParseNumber(valsPrev(0))
                             Select Case j
-                                Case 0: wsReport.Cells(reportRow, 19).Interior.Color = vbYellow
-                                Case 1: wsReport.Cells(reportRow, 23).Interior.Color = vbYellow
+                                Case 0
+                                    wsReport.Cells(reportRow, 19).Interior.Color = vbYellow
+                                    If CleanString(valsCurr(2)) = CleanString(valsPrev(2)) Then
+                                        changeReason = "Risk Amount Change: " & valsCurr(1) & " " & _
+                                                        IIf(changeVal >= 0, "+$", "-$") & Format(Abs(changeVal), "#,##0.00")
+                                    End If
+                                Case 1
+                                    wsReport.Cells(reportRow, 23).Interior.Color = vbYellow
+                                    If CleanString(valsCurr(2)) <> CleanString(valsPrev(2)) Then
+                                        changeReason = "Risk Status Change: " & valsCurr(1) & " " & _
+                                                        IIf(changeVal >= 0, "+$", "-$") & Format(Abs(changeVal), "#,##0.00") & _
+                                                        " (" & valsPrev(2) & " to " & valsCurr(2) & ")"
+                                    End If
                                 Case 2: wsReport.Cells(reportRow, 20).Interior.Color = vbYellow
                                 Case 3: wsReport.Cells(reportRow, 15).Interior.Color = vbYellow
                                 Case 4: wsReport.Cells(reportRow, 7).Interior.Color = vbYellow
@@ -148,17 +156,22 @@ Sub CheckDictionaries(prev As Object, curr As Object)
                     wsReport.Cells(reportRow, changeCol).Value = changeVal
                     If changeVal <> 0 Then wsReport.Cells(reportRow, changeCol).Interior.Color = vbYellow
                     
+                    wsReport.Cells(reportRow, reasonCol).Value = changeReason
                     wsReport.Cells(reportRow, reasonCol + 1).Value = "Forecast"
+                    
                     reportRow = reportRow + 1
                     changedCount = changedCount + 1
                 End If
             End If
         Else
-            ' New row in CurrOpps
             foundRow = FindRowByKey(wsCurr, CStr(dictKey), lastRowCurr)
             If foundRow > 0 Then
                 wsReport.Rows(reportRow).Resize(1, colCount).Value = _
                     wsCurr.Rows(foundRow).Resize(1, colCount).Value
+                valsCurr = Split(curr(dictKey), "|")
+                currS = ParseNumber(valsCurr(0))
+                wsReport.Cells(reportRow, changeCol).Value = currS
+                If currS <> 0 Then wsReport.Cells(reportRow, changeCol).Interior.Color = vbYellow
                 wsReport.Cells(reportRow, reasonCol + 1).Value = "Forecast"
                 reportRow = reportRow + 1
                 newCount = newCount + 1
@@ -171,24 +184,30 @@ Sub CheckDictionaries(prev As Object, curr As Object)
         If Not curr.Exists(dictKey) Then
             foundRow = FindRowByKey(wsPrev, CStr(dictKey), lastRowPrev)
             If foundRow > 0 Then
-                ' Copy forecast row (gray)
+                ' Copy fallen forecast (gray)
                 wsReport.Rows(reportRow).Resize(1, colCount).Value = _
                     wsPrev.Rows(foundRow).Resize(1, colCount).Value
                 wsReport.Rows(reportRow).Interior.Color = RGB(120, 120, 120)
                 wsReport.Cells(reportRow, reasonCol + 1).Value = "Forecast"
+                
+                valsPrev = Split(prev(dictKey), "|")
+                prevS = ParseNumber(valsPrev(0))
+                wsReport.Cells(reportRow, changeCol).Value = -prevS
+                If prevS <> 0 Then wsReport.Cells(reportRow, changeCol).Interior.Color = vbYellow
+                
                 reportRow = reportRow + 1
                 
-                ' Check for Actuals lines
-                oppId = wsPrev.Cells(foundRow, "D").Value
-                revStream = wsPrev.Cells(foundRow, "P").Value
-                errUser = wsPrev.Cells(foundRow, "K").Value
+                ' --- Bring in matching Actuals ---
+                Dim oppId As String, revStream As String, errUser As String
+                oppId = Trim(wsPrev.Cells(foundRow, "D").Value)
+                revStream = Trim(wsPrev.Cells(foundRow, "P").Value)
+                errUser = Trim(wsPrev.Cells(foundRow, "K").Value)
                 
-                ' Loop through all matching Actuals
+                Dim iAct As Long, lastColAct As Long
                 For iAct = 2 To lastRowCurrAct
                     If (Trim(wsCurrAct.Cells(iAct, "T").Value) & "_" & Trim(wsCurrAct.Cells(iAct, "AI").Value) = oppId & "_" & revStream) _
                     Or (Trim(wsCurrAct.Cells(iAct, "AD").Value) & "_" & Trim(wsCurrAct.Cells(iAct, "AI").Value) = errUser & "_" & revStream) Then
                         ' Copy values only starting from column T
-                        Dim lastColAct As Long
                         lastColAct = wsCurrAct.Cells(iAct, wsCurrAct.Columns.Count).End(xlToLeft).Column
                         wsReport.Cells(reportRow, 1).Resize(1, lastColAct - 19 + 1).Value = _
                             wsCurrAct.Cells(iAct, 20).Resize(1, lastColAct - 19 + 1).Value
@@ -196,6 +215,7 @@ Sub CheckDictionaries(prev As Object, curr As Object)
                         reportRow = reportRow + 1
                     End If
                 Next iAct
+                
                 removedCount = removedCount + 1
             End If
         End If
@@ -203,7 +223,6 @@ Sub CheckDictionaries(prev As Object, curr As Object)
     
     wsReport.Columns.AutoFit
 End Sub
-
 
 ' === HELPER: Find row by key (D + P) ===
 Function FindRowByKey(ws As Worksheet, ByVal keyText As String, ByVal lastRow As Long) As Long
@@ -217,7 +236,6 @@ Function FindRowByKey(ws As Worksheet, ByVal keyText As String, ByVal lastRow As
     Next i
     FindRowByKey = 0
 End Function
-
 
 ' === HELPER: Parse numeric values robustly ===
 Private Function ParseNumber(ByVal v As Variant) As Double
@@ -233,7 +251,6 @@ Private Function ParseNumber(ByVal v As Variant) As Double
         On Error GoTo 0
     End If
 End Function
-
 
 ' === HELPER: Clean strings for comparison ===
 Private Function CleanString(ByVal s As Variant) As String
