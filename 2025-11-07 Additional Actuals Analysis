@@ -184,29 +184,9 @@ Sub CheckDictionaries(prev As Object, curr As Object)
         If Not curr.Exists(dictKey) Then
             foundRow = FindRowByKey(wsPrev, CStr(dictKey), lastRowPrev)
             If foundRow > 0 Then
-                Dim summedAK As Double
-                summedAK = SumActuals(wsCurrAct, wsPrev.Cells(foundRow, "D").Value, wsPrev.Cells(foundRow, "P").Value, _
-                                      wsPrev.Cells(foundRow, "K").Value)
-                
-                If summedAK <> 0 Then
-                    ' Copy PrevOpps row as template, replace amount with summed actuals
-                    wsReport.Rows(reportRow).Resize(1, colCount).Value = wsPrev.Rows(foundRow).Resize(1, colCount).Value
-                    wsReport.Cells(reportRow, "S").Value = summedAK  ' Replace amount column with summed value
-                    wsReport.Cells(reportRow, reasonCol + 1).Value = "Actuals"
-                Else
-                    ' Not in CurrActuals — mark as removed
-                    wsReport.Rows(reportRow).Resize(1, colCount).Value = _
-                        wsPrev.Rows(foundRow).Resize(1, colCount).Value
-                    wsReport.Rows(reportRow).Interior.Color = RGB(120, 120, 120)
-                    valsPrev = Split(prev(dictKey), "|")
-                    prevS = ParseNumber(valsPrev(0))
-                    wsReport.Cells(reportRow, changeCol).Value = -prevS
-                    If prevS <> 0 Then wsReport.Cells(reportRow, changeCol).Interior.Color = vbYellow
-                    wsReport.Cells(reportRow, reasonCol + 1).Value = "Forecast"
-                End If
-                
-                reportRow = reportRow + 1
-                removedCount = removedCount + 1
+                ' Copy all matching Actuals rows (T onwards) for this Opp
+                CopyMatchingActuals wsCurrAct, wsReport, wsPrev.Cells(foundRow, "D").Value, _
+                                    wsPrev.Cells(foundRow, "P").Value, wsPrev.Cells(foundRow, "K").Value, reportRow
             End If
         End If
     Next dictKey
@@ -214,31 +194,31 @@ Sub CheckDictionaries(prev As Object, curr As Object)
     wsReport.Columns.AutoFit
 End Sub
 
-' === Helper to sum all matching Actuals for a given Opp/RevStream or fallback ===
-Function SumActuals(wsAct As Worksheet, oppID As Variant, revStream As Variant, errUser As Variant) As Double
-    Dim i As Long, lastRow As Long
-    Dim matchAK As Double
+' === Copy all matching Actuals rows into Report ===
+Sub CopyMatchingActuals(wsAct As Worksheet, wsReport As Worksheet, oppID As Variant, revStream As Variant, errUser As Variant, ByRef reportRow As Long)
+    Dim lastRow As Long, i As Long
     Dim oppIDStr As String, revStr As String, errUserStr As String
-    Dim valAK As Double
+    Dim rowRange As Range
     
     lastRow = wsAct.Cells(wsAct.Rows.Count, "T").End(xlUp).Row
     oppIDStr = Trim(CStr(oppID))
     revStr = Trim(CStr(revStream))
     errUserStr = Trim(CStr(errUser))
     
-    matchAK = 0
     For i = 2 To lastRow
         If (Trim(CStr(wsAct.Cells(i, "T").Value)) <> "" And Trim(CStr(wsAct.Cells(i, "T").Value)) = oppIDStr And _
             Trim(CStr(wsAct.Cells(i, "AI").Value)) = revStr) _
            Or (Trim(CStr(wsAct.Cells(i, "T").Value)) = "" And Trim(CStr(wsAct.Cells(i, "AD").Value)) = errUserStr And _
                Trim(CStr(wsAct.Cells(i, "AI").Value)) = revStr) Then
            
-           valAK = ParseNumber(wsAct.Cells(i, "AK").Value)
-           matchAK = matchAK + valAK
+           ' Copy values only from T onward
+           Set rowRange = wsAct.Range(wsAct.Cells(i, "T"), wsAct.Cells(i, wsAct.Cells(i, wsAct.Columns.Count).End(xlToLeft).Column))
+           wsReport.Cells(reportRow, "A").Resize(1, rowRange.Columns.Count).Value = rowRange.Value
+           wsReport.Cells(reportRow, "AO").Value = "Actuals"
+           reportRow = reportRow + 1
         End If
     Next i
-    SumActuals = matchAK
-End Function
+End Sub
 
 ' === HELPER: Find row by key (D + P) ===
 Function FindRowByKey(ws As Worksheet, ByVal keyText As String, ByVal lastRow As Long) As Long
