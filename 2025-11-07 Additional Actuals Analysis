@@ -49,11 +49,10 @@ Sub BuildPrevAndCurrDictionaries()
     Call CheckDictionaries(prev, curr)
 End Sub
 
-
 ' === COMPARISON AND REPORT ===
 Sub CheckDictionaries(prev As Object, curr As Object)
     Dim wsReport As Worksheet, wsPrev As Worksheet, wsCurr As Worksheet
-    Dim wsCurrAct As Worksheet
+    Dim wsCurrAct As Worksheet, wsPrevAct As Worksheet
     Dim dictKey As Variant
     Dim reportRow As Long
     Dim valsPrev As Variant, valsCurr As Variant
@@ -65,7 +64,6 @@ Sub CheckDictionaries(prev As Object, curr As Object)
     Dim prevVal As String, currVal As String
     Dim changedCount As Long, newCount As Long, removedCount As Long
     Dim changeReason As String
-    Dim key As String
     
     ' Initialize counters
     changedCount = 0: newCount = 0: removedCount = 0
@@ -73,6 +71,7 @@ Sub CheckDictionaries(prev As Object, curr As Object)
     ' Source sheets
     Set wsPrev = ThisWorkbook.Sheets("PrevOpps")
     Set wsCurr = ThisWorkbook.Sheets("CurrOpps")
+    Set wsPrevAct = ThisWorkbook.Sheets("PrevActuals")
     Set wsCurrAct = ThisWorkbook.Sheets("CurrActuals")
     colCount = wsPrev.Cells(1, wsPrev.Columns.Count).End(xlToLeft).Column
     
@@ -108,6 +107,7 @@ Sub CheckDictionaries(prev As Object, curr As Object)
             If prev(dictKey) <> curr(dictKey) Then
                 foundRow = FindRowByKey(wsCurr, CStr(dictKey), lastRowCurr)
                 If foundRow > 0 Then
+                    ' Copy forecast row (values only)
                     wsReport.Rows(reportRow).Resize(1, colCount).Value = _
                         wsCurr.Rows(foundRow).Resize(1, colCount).Value
                     
@@ -184,40 +184,54 @@ Sub CheckDictionaries(prev As Object, curr As Object)
         If Not curr.Exists(dictKey) Then
             foundRow = FindRowByKey(wsPrev, CStr(dictKey), lastRowPrev)
             If foundRow > 0 Then
-                ' Copy all matching Actuals rows (T onwards) for this Opp
-                CopyMatchingActuals wsCurrAct, wsReport, wsPrev.Cells(foundRow, "D").Value, _
-                                    wsPrev.Cells(foundRow, "P").Value, wsPrev.Cells(foundRow, "K").Value, reportRow
+                ' --- Check for matching Actuals ---
+                Dim sumActual As Double
+                sumActual = 0
+                Dim i As Long
+                ' First, try Opp ID + Revenue Stream
+                For i = 2 To lastRowCurrAct
+                    If Trim(CStr(wsCurrAct.Cells(i, "T").Value)) & "_" & Trim(CStr(wsCurrAct.Cells(i, "AI").Value)) = dictKey Then
+                        sumActual = sumActual + ParseNumber(wsCurrAct.Cells(i, "AK").Value)
+                    End If
+                Next i
+                ' Second, try fallback ERR End User + Revenue Stream if sumActual = 0
+                If sumActual = 0 Then
+                    Dim prevErr As String, prevRev As String
+                    prevErr = Trim(CStr(wsPrev.Cells(foundRow, "K").Value))
+                    prevRev = Trim(CStr(wsPrev.Cells(foundRow, "P").Value))
+                    For i = 2 To lastRowCurrAct
+                        If Trim(CStr(wsCurrAct.Cells(i, "AD").Value)) = prevErr And _
+                           Trim(CStr(wsCurrAct.Cells(i, "AI").Value)) = prevRev Then
+                            sumActual = sumActual + ParseNumber(wsCurrAct.Cells(i, "AK").Value)
+                        End If
+                    Next i
+                End If
+                
+                If sumActual <> 0 Then
+                    ' Copy a single row from Actuals columns T:AK into report (values only)
+                    wsReport.Cells(reportRow, 1).Resize(1, wsCurrAct.Cells(foundRow, "AK").Column - 19 + 1).Value = _
+                        wsCurrAct.Cells(foundRow, "T").Resize(1, wsCurrAct.Cells(foundRow, "AK").Column - 19 + 1).Value
+                    wsReport.Cells(reportRow, changeCol).Value = sumActual
+                    wsReport.Cells(reportRow, reasonCol + 1).Value = "Actuals"
+                Else
+                    ' Not in CurrActuals — mark as removed
+                    wsReport.Rows(reportRow).Resize(1, colCount).Value = _
+                        wsPrev.Rows(foundRow).Resize(1, colCount).Value
+                    wsReport.Rows(reportRow).Interior.Color = RGB(120, 120, 120)
+                    valsPrev = Split(prev(dictKey), "|")
+                    prevS = ParseNumber(valsPrev(0))
+                    wsReport.Cells(reportRow, changeCol).Value = -prevS
+                    If prevS <> 0 Then wsReport.Cells(reportRow, changeCol).Interior.Color = vbYellow
+                    wsReport.Cells(reportRow, reasonCol + 1).Value = "Forecast"
+                End If
+                
+                reportRow = reportRow + 1
+                removedCount = removedCount + 1
             End If
         End If
     Next dictKey
     
     wsReport.Columns.AutoFit
-End Sub
-
-' === Copy all matching Actuals rows into Report ===
-Sub CopyMatchingActuals(wsAct As Worksheet, wsReport As Worksheet, oppID As Variant, revStream As Variant, errUser As Variant, ByRef reportRow As Long)
-    Dim lastRow As Long, i As Long
-    Dim oppIDStr As String, revStr As String, errUserStr As String
-    Dim rowRange As Range
-    
-    lastRow = wsAct.Cells(wsAct.Rows.Count, "T").End(xlUp).Row
-    oppIDStr = Trim(CStr(oppID))
-    revStr = Trim(CStr(revStream))
-    errUserStr = Trim(CStr(errUser))
-    
-    For i = 2 To lastRow
-        If (Trim(CStr(wsAct.Cells(i, "T").Value)) <> "" And Trim(CStr(wsAct.Cells(i, "T").Value)) = oppIDStr And _
-            Trim(CStr(wsAct.Cells(i, "AI").Value)) = revStr) _
-           Or (Trim(CStr(wsAct.Cells(i, "T").Value)) = "" And Trim(CStr(wsAct.Cells(i, "AD").Value)) = errUserStr And _
-               Trim(CStr(wsAct.Cells(i, "AI").Value)) = revStr) Then
-           
-           ' Copy values only from T onward
-           Set rowRange = wsAct.Range(wsAct.Cells(i, "T"), wsAct.Cells(i, wsAct.Cells(i, wsAct.Columns.Count).End(xlToLeft).Column))
-           wsReport.Cells(reportRow, "A").Resize(1, rowRange.Columns.Count).Value = rowRange.Value
-           wsReport.Cells(reportRow, "AO").Value = "Actuals"
-           reportRow = reportRow + 1
-        End If
-    Next i
 End Sub
 
 ' === HELPER: Find row by key (D + P) ===
