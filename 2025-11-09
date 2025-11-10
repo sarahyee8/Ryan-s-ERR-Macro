@@ -49,6 +49,7 @@ Sub BuildPrevAndCurrDictionaries()
     Call CheckDictionaries(prev, curr)
 End Sub
 
+
 ' === COMPARISON AND REPORT ===
 Sub CheckDictionaries(prev As Object, curr As Object)
     Dim wsReport As Worksheet, wsPrev As Worksheet, wsCurr As Worksheet
@@ -89,9 +90,10 @@ Sub CheckDictionaries(prev As Object, curr As Object)
     ' Copy header from prev
     wsPrev.Rows(1).Resize(1, colCount).Copy wsReport.Rows(1)
     
-    ' Add trailing headers
-    changeCol = colCount + 1
-    reasonCol = colCount + 2
+    ' --- Place Change/Reason/Source columns explicitly with AP as Change ---
+    changeCol = wsReport.Range("AP").Column                 ' AP for Change in Amount
+    reasonCol = changeCol + 1                              ' AQ for Change Reason
+    ' Ensure header columns exist (write headers)
     wsReport.Cells(1, changeCol).Value = "Change in Amount"
     wsReport.Cells(1, reasonCol).Value = "Change Reason"
     wsReport.Cells(1, reasonCol + 1).Value = "Source Type"
@@ -107,6 +109,7 @@ Sub CheckDictionaries(prev As Object, curr As Object)
             If prev(dictKey) <> curr(dictKey) Then
                 foundRow = FindRowByKey(wsCurr, CStr(dictKey), lastRowCurr)
                 If foundRow > 0 Then
+                    ' Copy forecast row (values only)
                     wsReport.Rows(reportRow).Resize(1, colCount).Value = _
                         wsCurr.Rows(foundRow).Resize(1, colCount).Value
                     
@@ -178,6 +181,7 @@ Sub CheckDictionaries(prev As Object, curr As Object)
         End If
     Next dictKey
     
+    
     ' === Step 2: Rows in prev missing from curr (fallen forecasts) ===
     For Each dictKey In prev.Keys
         If Not curr.Exists(dictKey) Then
@@ -189,16 +193,20 @@ Sub CheckDictionaries(prev As Object, curr As Object)
                 wsReport.Rows(reportRow).Interior.Color = RGB(120, 120, 120)
                 wsReport.Cells(reportRow, reasonCol + 1).Value = "Forecast"
                 
-                valsPrev = Split(prev(dictKey), "|")
-                prevS = ParseNumber(valsPrev(0))
-                wsReport.Cells(reportRow, changeCol).Value = -prevS
-                If prevS <> 0 Then wsReport.Cells(reportRow, changeCol).Interior.Color = vbYellow
+                ' === UPDATED: set Change in Amount (AP) = - value in column X of PrevOpps row ===
+                Dim prevAmt As Variant
+                prevAmt = wsPrev.Cells(foundRow, "X").Value
+                If IsNumeric(prevAmt) Then
+                    wsReport.Cells(reportRow, changeCol).Value = -ParseNumber(prevAmt)
+                    If ParseNumber(prevAmt) <> 0 Then wsReport.Cells(reportRow, changeCol).Interior.Color = vbYellow
+                End If
                 
                 reportRow = reportRow + 1
                 
-                ' === Added: Bring in matching Actuals ===
+                ' === Added: Bring in matching Actuals (all matches) ===
                 Dim oppId As String, revStream As String, errUser As String
                 Dim iAct As Long, lastColAct As Long
+                Dim actAmt As Variant
                 oppId = Trim(wsPrev.Cells(foundRow, "D").Value)
                 revStream = Trim(wsPrev.Cells(foundRow, "P").Value)
                 errUser = Trim(wsPrev.Cells(foundRow, "K").Value)
@@ -208,13 +216,18 @@ Sub CheckDictionaries(prev As Object, curr As Object)
                     Or (Trim(wsCurrAct.Cells(iAct, "AD").Value) & "_" & Trim(wsCurrAct.Cells(iAct, "AI").Value) = errUser & "_" & revStream) Then
                         lastColAct = wsCurrAct.Cells(iAct, wsCurrAct.Columns.Count).End(xlToLeft).Column
                         
-                        ' Copy only values from actuals starting at column T
+                        ' Copy only values from actuals starting at column T into report starting at column A
                         wsReport.Cells(reportRow, 1).Resize(1, lastColAct - 19 + 1).Value = _
                             wsCurrAct.Cells(iAct, 20).Resize(1, lastColAct - 19 + 1).Value
                         
-                        wsReport.Cells(reportRow, changeCol).Value = ParseNumber(wsCurrAct.Cells(iAct, "AK").Value)
+                        ' Set AP (Change in Amount) to the value in column X from actuals (positive)
+                        actAmt = wsCurrAct.Cells(iAct, "X").Value
+                        If IsNumeric(actAmt) Then
+                            wsReport.Cells(reportRow, changeCol).Value = ParseNumber(actAmt)
+                            If ParseNumber(actAmt) <> 0 Then wsReport.Cells(reportRow, changeCol).Interior.Color = vbYellow
+                        End If
+                        
                         wsReport.Cells(reportRow, reasonCol + 1).Value = "Actuals"
-                        wsReport.Cells(reportRow, changeCol).Interior.Color = vbYellow
                         reportRow = reportRow + 1
                     End If
                 Next iAct
