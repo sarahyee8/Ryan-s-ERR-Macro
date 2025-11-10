@@ -259,3 +259,4 @@ Private Function CleanString(ByVal s As Variant) As String
     temp = Replace(temp, Chr(160), "")
     CleanString = UCase(temp)
 End Function
+
