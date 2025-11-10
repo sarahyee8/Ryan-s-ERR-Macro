@@ -91,7 +91,7 @@ Sub CheckDictionaries(prev As Object, curr As Object)
     wsPrev.Rows(1).Resize(1, colCount).Copy wsReport.Rows(1)
     
     ' --- Place Change/Reason/Source columns explicitly with AP as Change ---
-    changeCol = wsReport.Range("AP").Column                 ' AP for Change in Amount
+    changeCol = wsReport.Range("AP1").Column                 ' AP for Change in Amount
     reasonCol = changeCol + 1                              ' AQ for Change Reason
     ' Ensure header columns exist (write headers)
     wsReport.Cells(1, changeCol).Value = "Change in Amount"
@@ -220,8 +220,8 @@ Sub CheckDictionaries(prev As Object, curr As Object)
                         wsReport.Cells(reportRow, 1).Resize(1, lastColAct - 19 + 1).Value = _
                             wsCurrAct.Cells(iAct, 20).Resize(1, lastColAct - 19 + 1).Value
                         
-                        ' Set AP (Change in Amount) to the value in column X from actuals (positive)
-                        actAmt = wsCurrAct.Cells(iAct, "X").Value
+                        ' === ROBUST: read Report column X (after copy) and put that into AP ===
+                        actAmt = wsReport.Cells(reportRow, "X").Value
                         If IsNumeric(actAmt) Then
                             wsReport.Cells(reportRow, changeCol).Value = ParseNumber(actAmt)
                             If ParseNumber(actAmt) <> 0 Then wsReport.Cells(reportRow, changeCol).Interior.Color = vbYellow
