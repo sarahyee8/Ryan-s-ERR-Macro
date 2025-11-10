@@ -193,9 +193,9 @@ Sub CheckDictionaries(prev As Object, curr As Object)
                 wsReport.Rows(reportRow).Interior.Color = RGB(120, 120, 120)
                 wsReport.Cells(reportRow, reasonCol + 1).Value = "Forecast"
                 
-                ' === UPDATED: set Change in Amount (AP) = - value in column X of PrevOpps row ===
+                ' === FIX: read what's now in Report column X for this row, write -X into AP ===
                 Dim prevAmt As Variant
-                prevAmt = wsPrev.Cells(foundRow, "X").Value
+                prevAmt = wsReport.Cells(reportRow, "X").Value
                 If IsNumeric(prevAmt) Then
                     wsReport.Cells(reportRow, changeCol).Value = -ParseNumber(prevAmt)
                     If ParseNumber(prevAmt) <> 0 Then wsReport.Cells(reportRow, changeCol).Interior.Color = vbYellow
