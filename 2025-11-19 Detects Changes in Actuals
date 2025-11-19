@@ -247,108 +247,98 @@ Sub CheckDictionaries(prev As Object, curr As Object)
         End If
     Next dictKey
     
-    ' === Step 3: Compare CurrActuals vs PrevActuals (AK changes) ===
-    Dim lastPrevA As Long, lastCurrA As Long
-    Dim dictPrevA As Object
-    Set dictPrevA = CreateObject("Scripting.Dictionary")
-    Dim rPrev As Long
-    Dim oppID As String, revStream As String
-    Dim AKprev As Variant, AKcurr As Variant
-    Dim amountChange As Double
-    Dim r As Long
-    Dim lastReportRow As Long
-    
-    lastPrevA = wsPrevAct.Cells(wsPrevAct.Rows.Count, "T").End(xlUp).Row
-    lastCurrA = wsCurrAct.Cells(wsCurrAct.Rows.Count, "T").End(xlUp).Row
-    lastReportRow = reportRow - 1
-    
-    ' Build lookup for PrevActuals using OppID|RevStream and also ErrUser|RevStream
-    For i = 2 To lastPrevA
-        oppID = Trim(wsPrevAct.Cells(i, "T").Value)
-        revStream = Trim(wsPrevAct.Cells(i, "AI").Value)
-        If oppID <> "" Or Trim(wsPrevAct.Cells(i, "AD").Value) <> "" Then
-            ' primary key
-            If oppID <> "" Then
-                key = oppID & "|" & revStream
-                If Not dictPrevA.Exists(key) Then dictPrevA.Add key, i
-            End If
-            ' secondary key using ErrUser (AD)
-            If Trim(wsPrevAct.Cells(i, "AD").Value) <> "" Then
-                key = Trim(wsPrevAct.Cells(i, "AD").Value) & "|" & revStream
-                If Not dictPrevA.Exists(key) Then dictPrevA.Add key, i
-            End If
+' === Step 3: Compare CurrActuals vs PrevActuals (AK changes) ===
+Dim lastPrevA As Long, lastCurrA As Long
+Dim dictPrevA As Object
+Set dictPrevA = CreateObject("Scripting.Dictionary")
+Dim rPrev As Long
+Dim AKprev As Variant, AKcurr As Variant
+Dim amountChange As Double
+Dim lastReportRow As Long
+
+lastPrevA = wsPrevAct.Cells(wsPrevAct.Rows.Count, "T").End(xlUp).Row
+lastCurrA = wsCurrAct.Cells(wsCurrAct.Rows.Count, "T").End(xlUp).Row
+lastReportRow = reportRow - 1
+
+' Build lookup for PrevActuals using OppID|RevStream and also ErrUser|RevStream
+For i = 2 To lastPrevA
+    oppID = Trim(wsPrevAct.Cells(i, "T").Value)
+    revStream = Trim(wsPrevAct.Cells(i, "AI").Value)
+    If oppID <> "" Or Trim(wsPrevAct.Cells(i, "AD").Value) <> "" Then
+        ' primary key
+        If oppID <> "" Then
+            key = oppID & "|" & revStream
+            If Not dictPrevA.Exists(key) Then dictPrevA.Add key, i
         End If
-    Next i
-    
-    ' Loop current actuals and compare AK
-    For i = 2 To lastCurrA
-        oppID = Trim(wsCurrAct.Cells(i, "T").Value)
-        revStream = Trim(wsCurrAct.Cells(i, "AI").Value)
-        If oppID = "" And Trim(wsCurrAct.Cells(i, "AD").Value) = "" Then GoTo NextCurrRow
-        
-        ' try oppID key first
-        key = oppID & "|" & revStream
-        If Not dictPrevA.Exists(key) Then
-            ' try ErrUser key
-            key = Trim(wsCurrAct.Cells(i, "AD").Value) & "|" & revStream
+        ' secondary key using ErrUser (AD)
+        If Trim(wsPrevAct.Cells(i, "AD").Value) <> "" Then
+            key = Trim(wsPrevAct.Cells(i, "AD").Value) & "|" & revStream
+            If Not dictPrevA.Exists(key) Then dictPrevA.Add key, i
         End If
+    End If
+Next i
+
+' Loop current actuals and compare AK
+For i = 2 To lastCurrA
+    oppID = Trim(wsCurrAct.Cells(i, "T").Value)
+    revStream = Trim(wsCurrAct.Cells(i, "AI").Value)
+    If oppID = "" And Trim(wsCurrAct.Cells(i, "AD").Value) = "" Then GoTo NextCurrRow
+    
+    ' try oppID key first
+    key = oppID & "|" & revStream
+    If Not dictPrevA.Exists(key) Then
+        ' try ErrUser key
+        key = Trim(wsCurrAct.Cells(i, "AD").Value) & "|" & revStream
+    End If
+    
+    If dictPrevA.Exists(key) Then
+        rPrev = dictPrevA(key)
+        AKcurr = wsCurrAct.Cells(i, "AK").Value
+        AKprev = wsPrevAct.Cells(rPrev, "AK").Value
         
-        If dictPrevA.Exists(key) Then
-            rPrev = dictPrevA(key)
-            AKcurr = wsCurrAct.Cells(i, "AK").Value
-            AKprev = wsPrevAct.Cells(rPrev, "AK").Value
+        ' only act if AK values are different
+        If Trim(CStr(AKcurr)) <> Trim(CStr(AKprev)) Then
+            ' compute numeric difference when possible
+            If IsNumeric(AKcurr) And IsNumeric(AKprev) Then
+                amountChange = CDbl(AKcurr) - CDbl(AKprev)
+            Else
+                On Error Resume Next
+                amountChange = CDbl(AKcurr) - CDbl(AKprev)
+                If Err.Number <> 0 Then amountChange = 0
+                On Error GoTo 0
+            End If
             
-            ' only act if AK values are different (treat blanks and non-numeric carefully)
-            If Trim(CStr(AKcurr)) <> Trim(CStr(AKprev)) Then
-                ' compute numeric difference when possible
-                If IsNumeric(AKcurr) And IsNumeric(AKprev) Then
-                    amountChange = CDbl(AKcurr) - CDbl(AKprev)
-                Else
-                    ' fallback: try convert, else 0
-                    On Error Resume Next
-                    amountChange = CDbl(AKcurr) - CDbl(AKprev)
-                    If Err.Number <> 0 Then amountChange = 0
-                    On Error GoTo 0
-                End If
+            ' build seenKey for current actual (opportunity + revstream + AKcurr)
+            Dim seenKeyCurr As String, seenKeyPrev As String
+            seenKeyCurr = Trim(CStr(oppID)) & "|" & Trim(CStr(revStream)) & "|" & Trim(CStr(AKcurr))
+            seenKeyPrev = Trim(CStr(oppID)) & "|" & Trim(CStr(revStream)) & "|" & Trim(CStr(AKprev))
+            
+            ' If neither Prev nor Curr actual already added to report, append them
+            If Not dictSeenActuals.Exists(seenKeyCurr) And Not dictSeenActuals.Exists(seenKeyPrev) Then
+                ' Append PrevActuals row (columns T:BH) starting at col A
+                lastReportRow = lastReportRow + 1
+                wsPrevAct.Range("T" & rPrev & ":BH" & rPrev).Copy
+                wsReport.Cells(lastReportRow, "A").PasteSpecial xlPasteValues
+                wsReport.Cells(lastReportRow, changeCol).Value = -amountChange
+                wsReport.Cells(lastReportRow, reasonCol).Value = "REMOVED/UPDATED ACTUAL (Prev)"
+                wsReport.Cells(lastReportRow, reasonCol + 1).Value = "Actuals"
+                wsReport.Rows(lastReportRow).Interior.Color = RGB(220, 220, 220)
+                If Not dictSeenActuals.Exists(seenKeyPrev) Then dictSeenActuals.Add seenKeyPrev, True
                 
-                ' build seenKey for current actual (opportunity + revstream + AKcurr)
-                Dim seenKeyCurr As String, seenKeyPrev As String
-                seenKeyCurr = Trim(CStr(oppID)) & "|" & Trim(CStr(revStream)) & "|" & Trim(CStr(AKcurr))
-                seenKeyPrev = Trim(CStr(oppID)) & "|" & Trim(CStr(revStream)) & "|" & Trim(CStr(AKprev))
-                
-                ' If neither Prev nor Curr actual already added to report, append them
-                If Not dictSeenActuals.Exists(seenKeyCurr) And Not dictSeenActuals.Exists(seenKeyPrev) Then
-                    ' Append PrevActuals row (columns T:BH) starting at col A
-                    lastReportRow = lastReportRow + 1
-                    wsPrevAct.Range("T" & rPrev & ":BH" & rPrev).Copy
-                    wsReport.Cells(lastReportRow, "A").PasteSpecial xlPasteValues
-                    ' mark change in amount on prev row as negative amountChange
-                    wsReport.Cells(lastReportRow, changeCol).Value = -amountChange
-                    ' reason and source
-                    wsReport.Cells(lastReportRow, reasonCol).Value = "REMOVED/UPDATED ACTUAL (Prev)"
-                    wsReport.Cells(lastReportRow, reasonCol + 1).Value = "Actuals"
-                    ' mark seen
-                    If Not dictSeenActuals.Exists(seenKeyPrev) Then dictSeenActuals.Add seenKeyPrev, True
-                    ' optional shading for removed-like prev row
-                    wsReport.Rows(lastReportRow).Interior.Color = RGB(220, 220, 220)
-                    
-                    ' Append CurrActuals row (columns T:BH) starting at col A
-                    lastReportRow = lastReportRow + 1
-                    wsCurrAct.Range("T" & i & ":BH" & i).Copy
-                    wsReport.Cells(lastReportRow, "A").PasteSpecial xlPasteValues
-                    ' mark change in amount on curr row as positive amountChange
-                    wsReport.Cells(lastReportRow, changeCol).Value = amountChange
-                    If amountChange <> 0 Then wsReport.Cells(lastReportRow, changeCol).Interior.Color = vbYellow
-                    ' reason and source
-                    wsReport.Cells(lastReportRow, reasonCol).Value = "ERR GIDB Forecast changed: " & Trim(CStr(AKprev)) & " -> " & Trim(CStr(AKcurr))
-                    wsReport.Cells(lastReportRow, reasonCol + 1).Value = "Actuals"
-                    ' mark seen
-                    If Not dictSeenActuals.Exists(seenKeyCurr) Then dictSeenActuals.Add seenKeyCurr, True
-                End If
+                ' Append CurrActuals row (columns T:BH) starting at col A
+                lastReportRow = lastReportRow + 1
+                wsCurrAct.Range("T" & i & ":BH" & i).Copy
+                wsReport.Cells(lastReportRow, "A").PasteSpecial xlPasteValues
+                wsReport.Cells(lastReportRow, changeCol).Value = amountChange
+                If amountChange <> 0 Then wsReport.Cells(lastReportRow, changeCol).Interior.Color = vbYellow
+                wsReport.Cells(lastReportRow, reasonCol).Value = "ERR GIDB Forecast changed: " & Trim(CStr(AKprev)) & " -> " & Trim(CStr(AKcurr))
+                wsReport.Cells(lastReportRow, reasonCol + 1).Value = "Actuals"
+                If Not dictSeenActuals.Exists(seenKeyCurr) Then dictSeenActuals.Add seenKeyCurr, True
             End If
         End If
+    End If
 NextCurrRow:
-    Next i
+Next i
     
     ' advance reportRow in case further logic expects it
     reportRow = lastReportRow + 1
