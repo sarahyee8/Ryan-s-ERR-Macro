@@ -1,8 +1,9 @@
-' === Step 3: Pull new actuals from CurrActuals not in PrevActuals ===
+' === Step 3: Pull new actuals from CurrActuals not already captured ===
 Dim wsPrevAct As Worksheet
 Dim lastRowPrevAct As Long
 Dim prevActDict As Object
 Dim currActKey As String
+Dim alreadyInReport As Object
 
 ' Set PrevActuals sheet
 Set wsPrevAct = ThisWorkbook.Sheets("PrevActuals")
@@ -17,18 +18,30 @@ For i = 2 To lastRowPrevAct
     End If
 Next i
 
-' Loop through CurrActuals to detect new OppID + RevStream
+' Build dictionary of OppID + RevStream already pulled into Report
+Set alreadyInReport = CreateObject("Scripting.Dictionary")
+For i = 2 To reportRow - 1
+    currActKey = Trim(wsReport.Cells(i, "D").Value) & "_" & Trim(wsReport.Cells(i, "P").Value)
+    If Not alreadyInReport.Exists(currActKey) Then
+        alreadyInReport(currActKey) = 1
+    End If
+Next i
+
+' Loop through CurrActuals to detect new OppID + RevStream not already in report
 For i = 2 To lastRowCurrAct
     currActKey = Trim(wsCurrAct.Cells(i, "T").Value) & "_" & Trim(wsCurrAct.Cells(i, "AI").Value)
     
-    ' Only bring in if key does NOT exist in PrevActuals
-    If Not prevActDict.Exists(currActKey) Then
-        ' Copy row from CurrActuals to Report
+    ' Only bring in if key does NOT exist in PrevActuals AND not already in Report
+    If Not prevActDict.Exists(currActKey) And Not alreadyInReport.Exists(currActKey) Then
+        ' Copy row from CurrActuals to Report starting at column A
         wsReport.Cells(reportRow, 1).Resize(1, 60).Value = wsCurrAct.Cells(i, "T").Resize(1, 60).Value
         
         ' Set reason/source
         wsReport.Cells(reportRow, reasonCol).Value = "New Actual"
         wsReport.Cells(reportRow, reasonCol + 1).Value = "CurrActuals"
+        
+        ' Mark this key as added
+        alreadyInReport(currActKey) = 1
         
         reportRow = reportRow + 1
     End If
