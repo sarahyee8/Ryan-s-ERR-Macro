@@ -285,3 +285,156 @@ Private Sub WriteManAdjRow(ws As Worksheet, r As Long, key As String, amt As Dou
     ws.Cells(r, "AR").Value = "Man Adj"
 
 End Sub
+
+
+
+
+
+
+
+Option Explicit
+
+'=====================================
+' APPEND MANUAL ADJUSTMENTS TO REPORT
+' Matching key: Sales Group + Ownership + Year + Reason
+'=====================================
+Public Sub AppendManAdjToReport()
+
+    Dim wsMA As Worksheet, wsReport As Worksheet
+    Dim currDict As Object, prevDict As Object
+    Dim lastRowCurr As Long, lastRowPrev As Long
+    Dim i As Long, key As String
+    Dim reportRow As Long
+    Dim k As Variant
+
+    Dim currParts() As String, prevParts() As String
+    Dim currAmt As Double, prevAmt As Double
+    Dim currMonth As String, currQtr As String
+    Dim prevMonth As String, prevQtr As String
+
+    Set wsMA = ThisWorkbook.Sheets("Man Adj")
+    Set wsReport = ThisWorkbook.Sheets("Report")   ' created by CheckDictionaries
+
+    Set currDict = CreateObject("Scripting.Dictionary")
+    Set prevDict = CreateObject("Scripting.Dictionary")
+
+    ' -------- CURRENT TABLE (A:G) --------
+    ' Headers row 2, data from row 3
+    lastRowCurr = wsMA.Cells(wsMA.Rows.Count, "A").End(xlUp).Row
+    For i = 3 To lastRowCurr
+        If Trim$(CStr(wsMA.Cells(i, "A").Value)) <> "" Then
+
+            ' KEY = Sales Group (A) + Ownership (B) + Year (C) + Reason (E)
+            key = UCase$(Trim$(CStr(wsMA.Cells(i, "A").Value))) & "|" & _
+                  UCase$(Trim$(CStr(wsMA.Cells(i, "B").Value))) & "|" & _
+                  Trim$(CStr(wsMA.Cells(i, "C").Value)) & "|" & _
+                  UCase$(Trim$(CStr(wsMA.Cells(i, "E").Value)))
+
+            ' Store: Amount|Month|Qtr  => F|D|G
+            currDict(key) = CStr(ParseAmt(wsMA.Cells(i, "F").Value)) & "|" & _
+                            UCase$(Trim$(CStr(wsMA.Cells(i, "D").Value))) & "|" & _
+                            UCase$(Trim$(CStr(wsMA.Cells(i, "G").Value)))
+        End If
+    Next i
+
+    ' -------- PREVIOUS TABLE (I:O) --------
+    lastRowPrev = wsMA.Cells(wsMA.Rows.Count, "I").End(xlUp).Row
+    For i = 3 To lastRowPrev
+        If Trim$(CStr(wsMA.Cells(i, "I").Value)) <> "" Then
+
+            ' KEY = Sales Group (I) + Ownership (J) + Year (K) + Reason (M)
+            key = UCase$(Trim$(CStr(wsMA.Cells(i, "I").Value))) & "|" & _
+                  UCase$(Trim$(CStr(wsMA.Cells(i, "J").Value))) & "|" & _
+                  Trim$(CStr(wsMA.Cells(i, "K").Value)) & "|" & _
+                  UCase$(Trim$(CStr(wsMA.Cells(i, "M").Value)))
+
+            ' Store: Amount|Month|Qtr  => N|L|O
+            prevDict(key) = CStr(ParseAmt(wsMA.Cells(i, "N").Value)) & "|" & _
+                            UCase$(Trim$(CStr(wsMA.Cells(i, "L").Value))) & "|" & _
+                            UCase$(Trim$(CStr(wsMA.Cells(i, "O").Value)))
+        End If
+    Next i
+
+    ' -------- APPEND TO REPORT --------
+    reportRow = wsReport.Cells(wsReport.Rows.Count, "A").End(xlUp).Row + 1
+    If reportRow < 2 Then reportRow = 2
+
+    ' New or changed rows
+    For Each k In currDict.Keys
+
+        currParts = Split(CStr(currDict(k)), "|")
+        currAmt = CDbl(currParts(0))
+        currMonth = currParts(1)
+        currQtr = currParts(2)
+
+        If prevDict.Exists(k) Then
+            prevParts = Split(CStr(prevDict(k)), "|")
+            prevAmt = CDbl(prevParts(0))
+            prevMonth = prevParts(1)
+            prevQtr = prevParts(2)
+
+            If currAmt <> prevAmt Then
+                WriteManAdjRow wsReport, reportRow, CStr(k), (currAmt - prevAmt), currMonth, currQtr
+                reportRow = reportRow + 1
+            End If
+        Else
+            WriteManAdjRow wsReport, reportRow, CStr(k), currAmt, currMonth, currQtr
+            reportRow = reportRow + 1
+        End If
+    Next k
+
+    ' Dropped rows (previous exists, current missing)
+    For Each k In prevDict.Keys
+        If Not currDict.Exists(k) Then
+            prevParts = Split(CStr(prevDict(k)), "|")
+            prevAmt = CDbl(prevParts(0))
+            prevMonth = prevParts(1)
+            prevQtr = prevParts(2)
+
+            WriteManAdjRow wsReport, reportRow, CStr(k), -prevAmt, prevMonth, prevQtr
+            wsReport.Rows(reportRow).Interior.Color = RGB(120, 120, 120)
+            reportRow = reportRow + 1
+        End If
+    Next k
+
+End Sub
+
+
+' Writes AA/AP/AQ/AR in Report
+' AA format: "Year Q#_Mmm_"
+Private Sub WriteManAdjRow(ByVal ws As Worksheet, ByVal r As Long, ByVal key As String, ByVal amt As Double, ByVal mon As String, ByVal qtr As String)
+
+    Dim p() As String
+    Dim yr As String, reason As String
+
+    p = Split(key, "|")
+    ' key: SalesGroup | Ownership | Year | Reason
+    yr = Trim$(p(2))
+    reason = p(3)
+
+    mon = WorksheetFunction.Proper(Left$(Trim$(mon), 3))
+    qtr = Trim$(qtr)
+    If UCase$(Left$(qtr, 1)) <> "Q" Then qtr = "Q" & qtr
+
+    ws.Cells(r, "AA").Value = yr & " " & qtr & "_" & mon & "_"
+    ws.Cells(r, "AP").Value = amt
+    ws.Cells(r, "AQ").Value = reason
+    ws.Cells(r, "AR").Value = "Man Adj"
+
+End Sub
+
+
+' Robust-ish amount parser without depending on your other module helpers
+Private Function ParseAmt(ByVal v As Variant) As Double
+    Dim s As String
+    s = Trim$(CStr(v))
+    If s = "" Or UCase$(s) = "N/A" Then
+        ParseAmt = 0
+    Else
+        s = Replace(s, "$", "")
+        s = Replace(s, ",", "")
+        On Error Resume Next
+        ParseAmt = CDbl(s)
+        On Error GoTo 0
+    End If
+End Function
