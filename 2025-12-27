@@ -1,0 +1,167 @@
+Option Explicit
+
+' Run this AFTER BuildPrevAndCurrDictionaries finishes (i.e., after Report exists)
+Sub AppendManAdjChangesToReport()
+    Dim wsMA As Worksheet, wsReport As Worksheet
+    Dim lastRowCurr As Long, lastRowPrev As Long
+    Dim currDict As Object, prevDict As Object
+    Dim i As Long, key As String
+    Dim reportRow As Long
+    Dim currAmt As Double, prevAmt As Double, changeVal As Double
+    
+    ' --- sheets ---
+    Set wsMA = ThisWorkbook.Sheets("Man Adj")
+    Set wsReport = ThisWorkbook.Sheets("Report") ' assumes your main macro already created it
+    
+    ' --- dictionaries ---
+    Set currDict = CreateObject("Scripting.Dictionary")
+    Set prevDict = CreateObject("Scripting.Dictionary")
+    
+    ' Current table: A2:G (headers at row 2, data starts row 3)
+    lastRowCurr = wsMA.Cells(wsMA.Rows.Count, "A").End(xlUp).Row
+    If lastRowCurr < 3 Then lastRowCurr = 2
+    
+    For i = 3 To lastRowCurr
+        If Trim$(CStr(wsMA.Cells(i, "A").Value)) <> "" Then
+            key = BuildManAdjKey( _
+                wsMA.Cells(i, "A").Value, _  ' Sales Group
+                wsMA.Cells(i, "B").Value, _  ' Ownership
+                wsMA.Cells(i, "C").Value, _  ' Year
+                wsMA.Cells(i, "D").Value, _  ' Month (Mmm)
+                wsMA.Cells(i, "E").Value, _  ' Reason
+                wsMA.Cells(i, "G").Value _   ' Qtr
+            )
+            currAmt = ParseNumber(wsMA.Cells(i, "F").Value) ' Amount
+            currDict(key) = currAmt
+        End If
+    Next i
+    
+    ' Previous table: I2:O (headers at row 2, data starts row 3)
+    lastRowPrev = wsMA.Cells(wsMA.Rows.Count, "I").End(xlUp).Row
+    If lastRowPrev < 3 Then lastRowPrev = 2
+    
+    For i = 3 To lastRowPrev
+        If Trim$(CStr(wsMA.Cells(i, "I").Value)) <> "" Then
+            key = BuildManAdjKey( _
+                wsMA.Cells(i, "I").Value, _  ' Sales Group
+                wsMA.Cells(i, "J").Value, _  ' Ownership
+                wsMA.Cells(i, "K").Value, _  ' Year
+                wsMA.Cells(i, "L").Value, _  ' Month (Mmm)
+                wsMA.Cells(i, "M").Value, _  ' Reason
+                wsMA.Cells(i, "O").Value _   ' Qtr
+            )
+            prevAmt = ParseNumber(wsMA.Cells(i, "N").Value) ' Amount
+            prevDict(key) = prevAmt
+        End If
+    Next i
+    
+    ' Find next empty row in Report
+    reportRow = wsReport.Cells(wsReport.Rows.Count, "A").End(xlUp).Row + 1
+    If reportRow < 2 Then reportRow = 2
+    
+    ' ====== 1) New or changed rows (current vs previous) ======
+    Dim k As Variant
+    For Each k In currDict.Keys
+        currAmt = currDict(k)
+        
+        If prevDict.Exists(k) Then
+            prevAmt = prevDict(k)
+            If Round(currAmt, 2) <> Round(prevAmt, 2) Then
+                changeVal = currAmt - prevAmt
+                WriteManAdjLine wsReport, reportRow, CStr(k), changeVal
+                reportRow = reportRow + 1
+            End If
+        Else
+            ' New row
+            WriteManAdjLine wsReport, reportRow, CStr(k), currAmt
+            reportRow = reportRow + 1
+        End If
+    Next k
+    
+    ' ====== 2) Dropped rows (in previous but not current) ======
+    For Each k In prevDict.Keys
+        If Not currDict.Exists(k) Then
+            prevAmt = prevDict(k)
+            ' Drop-off => negative of old amount
+            WriteManAdjLine wsReport, reportRow, CStr(k), -prevAmt, True
+            reportRow = reportRow + 1
+        End If
+    Next k
+    
+    wsReport.Columns.AutoFit
+End Sub
+
+
+' --- Builds a key using all columns except Amount ---
+Private Function BuildManAdjKey( _
+    ByVal salesGroup As Variant, _
+    ByVal ownership As Variant, _
+    ByVal yr As Variant, _
+    ByVal mon As Variant, _
+    ByVal reason As Variant, _
+    ByVal qtr As Variant _
+) As String
+    BuildManAdjKey = CleanString(salesGroup) & "|" & _
+                     CleanString(ownership) & "|" & _
+                     CleanString(yr) & "|" & _
+                     CleanString(mon) & "|" & _
+                     CleanString(reason) & "|" & _
+                     CleanString(qtr)
+End Function
+
+
+' --- Writes one line into Report (AA/AP/AQ/AR), optionally greys dropped rows ---
+Private Sub WriteManAdjLine( _
+    ByVal wsReport As Worksheet, _
+    ByVal reportRow As Long, _
+    ByVal keyText As String, _
+    ByVal amtToWrite As Double, _
+    Optional ByVal isDropped As Boolean = False _
+)
+    Dim parts() As String
+    Dim salesGroup As String, ownership As String, yr As String, mon As String, reason As String, qtr As String
+    Dim label As String
+    
+    parts = Split(keyText, "|")
+    ' parts: 0 Sales Group, 1 Ownership, 2 Year, 3 Month, 4 Reason, 5 Qtr
+    salesGroup = parts(0)
+    ownership = parts(1)
+    yr = parts(2)
+    mon = parts(3)
+    reason = parts(4)
+    qtr = parts(5)
+    
+    label = BuildYearQtrMonthLabel(yr, qtr, mon)   ' -> goes into AA
+    
+    ' Fill required Report fields
+    wsReport.Cells(reportRow, "AA").Value = label
+    wsReport.Cells(reportRow, "AP").Value = amtToWrite
+    wsReport.Cells(reportRow, "AQ").Value = reason
+    wsReport.Cells(reportRow, "AR").Value = "Man Adj"
+    
+    ' Optional styling: grey dropped rows to match your forecast drop-off vibe
+    If isDropped Then
+        wsReport.Rows(reportRow).Interior.Color = RGB(120, 120, 120)
+    End If
+End Sub
+
+
+' --- Converts Year/Qtr/Month into: "Year Qtr_Mmm_" e.g., "2025 Q3_Jul_" ---
+Private Function BuildYearQtrMonthLabel(ByVal yr As String, ByVal qtr As String, ByVal mon As String) As String
+    Dim m As String, q As String, y As String
+    
+    y = Trim$(yr)
+    q = Trim$(qtr)
+    
+    m = Trim$(mon)
+    If Len(m) >= 3 Then
+        m = WorksheetFunction.Proper(Left$(m, 3)) ' Jul, Aug, Sep...
+    Else
+        m = WorksheetFunction.Proper(m)
+    End If
+    
+    ' Ensure qtr looks like Q1/Q2/Q3/Q4
+    If UCase$(Left$(q, 1)) <> "Q" Then q = "Q" & q
+    
+    BuildYearQtrMonthLabel = y & " " & q & "_" & m & "_"
+End Function
