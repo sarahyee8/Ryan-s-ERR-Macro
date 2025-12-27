@@ -543,3 +543,10 @@ Private Sub WriteManAdjRow(ws As Worksheet, r As Long, key As String, amt As Dou
     ws.Cells(r, "AR").Value = "Man Adj"
 
 End Sub
+
+
+
+
+ws.Cells(r, "AA").Value = p(2) & " Quarter " & _
+                          Replace(p(5), "Q", "") & " Month " & _
+                          Month(DateValue("1-" & p(3) & "-2000"))
