@@ -167,10 +167,34 @@ Private Function BuildYearQtrMonthLabel(ByVal yr As String, ByVal qtr As String,
 End Function
 
 
-'========================
-' MANUAL ADJUSTMENT APPEND
-'========================
-Sub AppendManAdjToReport()
+
+    ws.Cells(r, "AQ").Value = p(4)
+    ws.Cells(r, "AR").Value = "Man Adj"
+
+End Sub
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Option Explicit
+
+'=====================================
+' APPEND MANUAL ADJUSTMENTS TO REPORT
+'=====================================
+Public Sub AppendManAdjToReport()
 
     Dim wsMA As Worksheet, wsReport As Worksheet
     Dim currDict As Object, prevDict As Object
@@ -181,14 +205,12 @@ Sub AppendManAdjToReport()
     Dim k As Variant
 
     Set wsMA = ThisWorkbook.Sheets("Man Adj")
-
-    ' Get Report (already created by CheckDictionaries)
-    Set wsReport = ThisWorkbook.Sheets("Report")
+    Set wsReport = ThisWorkbook.Sheets("Report")   ' created by CheckDictionaries
 
     Set currDict = CreateObject("Scripting.Dictionary")
     Set prevDict = CreateObject("Scripting.Dictionary")
 
-    ' ----- CURRENT table (A:G) -----
+    ' -------- CURRENT TABLE (A:G) --------
     lastRowCurr = wsMA.Cells(wsMA.Rows.Count, "A").End(xlUp).Row
     For i = 3 To lastRowCurr
         If wsMA.Cells(i, "A").Value <> "" Then
@@ -198,29 +220,33 @@ Sub AppendManAdjToReport()
                   UCase(Trim(wsMA.Cells(i, "D").Value)) & "|" & _
                   UCase(Trim(wsMA.Cells(i, "E").Value)) & "|" & _
                   UCase(Trim(wsMA.Cells(i, "G").Value))
+
             currAmt = Val(Replace(Replace(wsMA.Cells(i, "F").Value, "$", ""), ",", ""))
             currDict(key) = currAmt
         End If
     Next i
 
-    ' ----- PREVIOUS table (I:O) -----
+    ' -------- PREVIOUS TABLE (I:O) --------
     lastRowPrev = wsMA.Cells(wsMA.Rows.Count, "I").End(xlUp).Row
     For i = 3 To lastRowPrev
         If wsMA.Cells(i, "I").Value <> "" Then
             key = UCase(Trim(wsMA.Cells(i, "I").Value)) & "|" & _
                   UCase(Trim(wsMA.Cells(i, "J").Value)) & "|" & _
-                  Trim(wsMA.Cells(i, "K").Value) & "|" & _
+                  Trim(wsMA.Cells(i, "K").Value)) & "|" & _
                   UCase(Trim(wsMA.Cells(i, "L").Value)) & "|" & _
                   UCase(Trim(wsMA.Cells(i, "M").Value)) & "|" & _
                   UCase(Trim(wsMA.Cells(i, "O").Value))
+
             prevAmt = Val(Replace(Replace(wsMA.Cells(i, "N").Value, "$", ""), ",", ""))
             prevDict(key) = prevAmt
         End If
     Next i
 
-    ' ----- Append to Report -----
+    ' -------- APPEND TO REPORT --------
     reportRow = wsReport.Cells(wsReport.Rows.Count, "A").End(xlUp).Row + 1
+    If reportRow < 2 Then reportRow = 2
 
+    ' New or changed rows
     For Each k In currDict.Keys
         currAmt = currDict(k)
         If prevDict.Exists(k) Then
@@ -235,6 +261,7 @@ Sub AppendManAdjToReport()
         End If
     Next k
 
+    ' Dropped rows
     For Each k In prevDict.Keys
         If Not currDict.Exists(k) Then
             WriteManAdjRow wsReport, reportRow, k, -prevDict(k)
