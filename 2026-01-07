@@ -365,4 +365,8 @@ Private Sub ApplyOppHyperlinkToCell(ByVal targetCell As Range)
         TextToDisplay:=oppId
 End Sub
 
-
+Dim lrT As Long, lrAD As Long, lrAI As Long
+    lrT = wsCurrAct.Cells(wsCurrAct.Rows.Count, "T").End(xlUp).Row
+    lrAD = wsCurrAct.Cells(wsCurrAct.Rows.Count, "AD").End(xlUp).Row
+    lrAI = wsCurrAct.Cells(wsCurrAct.Rows.Count, "AI").End(xlUp).Row
+    lastRowCurrAct = Application.Max(lrT, lrAD, lrAI)
