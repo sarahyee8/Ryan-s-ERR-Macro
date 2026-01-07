@@ -1,0 +1,248 @@
+Sub CheckDictionaries(prev As Object, curr As Object)
+    Dim wsReport As Worksheet, wsPrev As Worksheet, wsCurr As Worksheet
+    Dim wsCurrAct As Worksheet
+    Dim dictKey As Variant
+    Dim reportRow As Long
+    Dim valsPrev As Variant, valsCurr As Variant
+    Dim foundRow As Long
+    Dim lastRowPrev As Long, lastRowCurr As Long, lastRowCurrAct As Long
+    Dim colCount As Long, changeCol As Long, reasonCol As Long
+    Dim j As Long, maxIdx As Long
+    Dim prevS As Double, currS As Double, changeVal As Double
+    Dim prevVal As String, currVal As String
+    Dim changedCount As Long, newCount As Long, removedCount As Long
+    Dim changeReason As String
+
+    ' Initialize counters
+    changedCount = 0: newCount = 0: removedCount = 0
+
+    ' Source sheets
+    Set wsPrev = ThisWorkbook.Sheets("PrevOpps")
+    Set wsCurr = ThisWorkbook.Sheets("CurrOpps")
+    Set wsCurrAct = ThisWorkbook.Sheets("CurrActuals")
+    colCount = wsPrev.Cells(1, wsPrev.Columns.Count).End(xlToLeft).Column
+
+    ' Create or clear Report sheet
+    On Error Resume Next
+    Set wsReport = ThisWorkbook.Sheets("Report")
+    On Error GoTo 0
+    If wsReport Is Nothing Then
+        Set wsReport = ThisWorkbook.Sheets.Add
+        wsReport.Name = "Report"
+    Else
+        wsReport.Cells.Clear
+    End If
+
+    ' Copy headers
+    wsPrev.Rows(1).Resize(1, colCount).Copy wsReport.Rows(1)
+    changeCol = wsReport.Range("AP1").Column
+    reasonCol = changeCol + 1
+    wsReport.Cells(1, changeCol).Value = "Change in Amount"
+    wsReport.Cells(1, reasonCol).Value = "Change Reason"
+    wsReport.Cells(1, reasonCol + 1).Value = "Source Type"
+
+    reportRow = 2
+    lastRowPrev = wsPrev.Cells(wsPrev.Rows.Count, "D").End(xlUp).Row
+    lastRowCurr = wsCurr.Cells(wsCurr.Rows.Count, "D").End(xlUp).Row
+
+    ' === CHANGED: Use AI for last row because T (Opp ID) can contain blanks ===
+    lastRowCurrAct = wsCurrAct.Cells(wsCurrAct.Rows.Count, "AI").End(xlUp).Row
+
+    ' === Step 1: Compare current vs previous forecasts ===
+    For Each dictKey In curr.Keys
+        If prev.Exists(dictKey) Then
+
+            If prev(dictKey) <> curr(dictKey) Then
+                foundRow = FindRowByKey(wsCurr, CStr(dictKey), lastRowCurr)
+                If foundRow > 0 Then
+                    wsReport.Rows(reportRow).Resize(1, colCount).Value = wsCurr.Rows(foundRow).Resize(1, colCount).Value
+                    ApplyOppHyperlinkToCell wsReport.Cells(reportRow, "D")
+                    valsPrev = Split(prev(dictKey), "|")
+                    valsCurr = Split(curr(dictKey), "|")
+                    maxIdx = Application.Min(UBound(valsPrev), UBound(valsCurr))
+
+                    ' Initialize change reason
+                    changeReason = ""
+
+                    ' Compare tracked fields and construct changeReason + highlight specific columns
+                    For j = 0 To maxIdx
+                        If j = 0 Then
+                            prevVal = CStr(ParseNumber(valsPrev(j)))
+                            currVal = CStr(ParseNumber(valsCurr(j)))
+                        Else
+                            prevVal = CleanString(valsPrev(j))
+                            currVal = CleanString(valsCurr(j))
+                        End If
+
+                        If currVal <> prevVal Then
+                            ' === CHANGED: compute amount change once per detected change ===
+                            prevS = ParseNumber(valsPrev(0))
+                            currS = ParseNumber(valsCurr(0))
+                            changeVal = currS - prevS
+
+                            ' === CHANGED: Select Case aligned to your actual field meanings ===
+                            Select Case j
+                                Case 0
+                                    ' S = Risk Amount changed
+                                    wsReport.Cells(reportRow, 19).Interior.Color = vbYellow   ' Column S
+
+                                    ' Only label as Risk Amount Change if W (risk category) did NOT change
+                                    If CleanString(valsCurr(2)) = CleanString(valsPrev(2)) Then
+                                        If Len(changeReason) > 0 Then changeReason = changeReason & " | "
+                                        changeReason = changeReason & _
+                                            "Risk Amount Change: " & CleanString(valsCurr(1)) & " " & _
+                                            IIf(changeVal >= 0, "+$", "-$") & Format(Abs(changeVal), "#,##0.00")
+                                    End If
+
+                                Case 1
+                                    ' K = ERR End User changed
+                                    wsReport.Cells(reportRow, 11).Interior.Color = vbYellow   ' Column K
+                                    If Len(changeReason) > 0 Then changeReason = changeReason & " | "
+                                    changeReason = changeReason & _
+                                        "ERR End User Change: (" & CleanString(valsPrev(1)) & " to " & CleanString(valsCurr(1)) & ")"
+
+                                Case 2
+                                    ' W = Cancellation Probability / ERR Risk Category changed
+                                    wsReport.Cells(reportRow, 23).Interior.Color = vbYellow   ' Column W
+                                    If Len(changeReason) > 0 Then changeReason = changeReason & " | "
+                                    changeReason = changeReason & _
+                                        "Risk Category / Cancellation Probability Change: " & CleanString(valsCurr(1)) & " " & _
+                                        IIf(changeVal >= 0, "+$", "-$") & Format(Abs(changeVal), "#,##0.00") & _
+                                        " (" & CleanString(valsPrev(2)) & " to " & CleanString(valsCurr(2)) & ")"
+
+                                Case 3
+                                    ' T = Sales Group changed
+                                    wsReport.Cells(reportRow, 20).Interior.Color = vbYellow   ' Column T
+                                    If Len(changeReason) > 0 Then changeReason = changeReason & " | "
+                                    changeReason = changeReason & _
+                                        "Sales Group Change: (" & CleanString(valsPrev(3)) & " to " & CleanString(valsCurr(3)) & ")"
+
+                                Case 4
+                                    ' O = ERR Territory changed
+                                    wsReport.Cells(reportRow, 15).Interior.Color = vbYellow   ' Column O
+                                    If Len(changeReason) > 0 Then changeReason = changeReason & " | "
+                                    changeReason = changeReason & _
+                                        "ERR Territory Change: (" & CleanString(valsPrev(4)) & " to " & CleanString(valsCurr(4)) & ")"
+
+                                Case 6
+                                    ' AA = Year/Quarter/Month changed
+                                    wsReport.Cells(reportRow, 27).Interior.Color = vbYellow   ' Column AA
+                                    If Len(changeReason) > 0 Then changeReason = changeReason & " | "
+                                    changeReason = changeReason & _
+                                        "Opportunity moved over months: (" & CleanString(valsPrev(6)) & " to " & CleanString(valsCurr(6)) & ")"
+                            End Select
+                        End If
+
+                    Next j
+
+                    ' Write Change in Amount and highlight if non-zero
+                    currS = ParseNumber(valsCurr(0))
+                    prevS = ParseNumber(valsPrev(0))
+                    changeVal = currS - prevS
+                    wsReport.Cells(reportRow, changeCol).Value = changeVal
+                    If changeVal <> 0 Then wsReport.Cells(reportRow, changeCol).Interior.Color = vbYellow
+
+                    ' Default changeReason if not yet assigned a value
+                    If Len(changeReason) = 0 Then
+                        changeReason = "Please investigate further/No changes detected."
+                    End If
+
+                    ' Write constructed Change Reason (if any)
+                    wsReport.Cells(reportRow, reasonCol).Value = changeReason
+
+                    ' Mark source
+                    wsReport.Cells(reportRow, reasonCol + 1).Value = "Forecast"
+
+                    reportRow = reportRow + 1
+                    changedCount = changedCount + 1
+                End If
+            End If
+        Else
+            ' New forecast
+            foundRow = FindRowByKey(wsCurr, CStr(dictKey), lastRowCurr)
+            If foundRow > 0 Then
+                wsReport.Rows(reportRow).Resize(1, colCount).Value = wsCurr.Rows(foundRow).Resize(1, colCount).Value
+                ApplyOppHyperlinkToCell wsReport.Cells(reportRow, "D")
+                valsCurr = Split(curr(dictKey), "|")
+                currS = ParseNumber(valsCurr(0))
+                wsReport.Cells(reportRow, changeCol).Value = currS
+                If currS <> 0 Then wsReport.Cells(reportRow, changeCol).Interior.Color = vbYellow
+                wsReport.Cells(reportRow, reasonCol + 1).Value = "Forecast"
+                reportRow = reportRow + 1
+                newCount = newCount + 1
+            End If
+        End If
+    Next dictKey
+
+    ' === Step 2: Forecasts that dropped off ===
+    For Each dictKey In prev.Keys
+        If Not curr.Exists(dictKey) Then
+            foundRow = FindRowByKey(wsPrev, CStr(dictKey), lastRowPrev)
+            If foundRow > 0 Then
+                ' Copy fallen forecast
+                wsReport.Rows(reportRow).Resize(1, colCount).Value = wsPrev.Rows(foundRow).Resize(1, colCount).Value
+                ApplyOppHyperlinkToCell wsReport.Cells(reportRow, "D")
+                wsReport.Rows(reportRow).Interior.Color = RGB(120, 120, 120)  ' grey row
+                wsReport.Cells(reportRow, reasonCol + 1).Value = "Forecast"
+
+                ' Get prev forecast amount and mark as negative (keep using X as you intended)
+                Dim prevAmt As Variant
+                prevAmt = wsReport.Cells(reportRow, "X").Value
+                If IsNumeric(prevAmt) Then
+                    wsReport.Cells(reportRow, changeCol).Value = -ParseNumber(prevAmt)
+                End If
+
+                reportRow = reportRow + 1
+                removedCount = removedCount + 1
+
+                ' Add Actuals lines (still yellow highlight for those)
+                Dim oppId As String, revStream As String, errUser As String
+                Dim iAct As Long, lastColAct As Long
+                Dim actAmt As Variant
+
+                oppId = Trim(wsPrev.Cells(foundRow, "D").Value)
+                revStream = Trim(wsPrev.Cells(foundRow, "P").Value)
+                errUser = Trim(wsPrev.Cells(foundRow, "K").Value)
+
+                ' === CHANGED: Build normalized keys once for the dropped forecast ===
+                Dim keyOppPrev As String, keyEUPrev As String
+                keyOppPrev = CleanString(oppId) & "_" & CleanString(revStream)
+                keyEUPrev = CleanString(errUser) & "_" & CleanString(revStream)
+
+                For iAct = 2 To lastRowCurrAct
+                    ' === CHANGED: Normalize actuals keys too (fixes hidden chars/case/NBSP) ===
+                    Dim keyOppAct As String, keyEUAct As String
+                    keyOppAct = CleanString(wsCurrAct.Cells(iAct, "T").Value) & "_" & CleanString(wsCurrAct.Cells(iAct, "AI").Value)
+                    keyEUAct = CleanString(wsCurrAct.Cells(iAct, "AD").Value) & "_" & CleanString(wsCurrAct.Cells(iAct, "AI").Value)
+
+                    If (keyOppAct = keyOppPrev) Or (keyEUAct = keyEUPrev) Then
+                        lastColAct = wsCurrAct.Cells(iAct, wsCurrAct.Columns.Count).End(xlToLeft).Column
+                        wsReport.Cells(reportRow, 1).Resize(1, lastColAct - 19 + 1).Value = _
+                            wsCurrAct.Cells(iAct, 20).Resize(1, lastColAct - 19 + 1).Value
+
+                        ApplyOppHyperlinkToCell wsReport.Cells(reportRow, "D")
+
+                        actAmt = wsReport.Cells(reportRow, "X").Value
+                        If IsNumeric(actAmt) Then
+                            wsReport.Cells(reportRow, changeCol).Value = ParseNumber(actAmt)
+                            If ParseNumber(actAmt) <> 0 Then wsReport.Cells(reportRow, changeCol).Interior.Color = vbYellow
+                        End If
+
+                        wsReport.Cells(reportRow, reasonCol + 1).Value = "Actuals"
+                        reportRow = reportRow + 1
+                        removedCount = removedCount + 1
+                    End If
+                Next iAct
+            End If
+        End If
+    Next dictKey
+
+    wsReport.Columns.AutoFit
+
+    Call AppendManAdjToReport
+
+    ThisWorkbook.Sheets("Summary") _
+        .PivotTables("CoCLF").RefreshTable
+
+    MsgBox "Report has been updated.", vbInformation, "Process Complete"
+End Sub
