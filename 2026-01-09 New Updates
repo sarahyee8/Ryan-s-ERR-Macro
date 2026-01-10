@@ -372,3 +372,46 @@ Private Sub ApplyOppHyperlinkToCell(ByVal targetCell As Range)
         Address:=linkAddress, _
         TextToDisplay:=oppId
 End Sub
+
+
+
+
+
+For i = 2 To lastRowPrev
+
+        key = Trim(wsPrev.Cells(i, "D").Value) & "_" & Trim(wsPrev.Cells(i, "P").Value)
+
+        valueStr = _
+            ParseNumber(wsPrev.Cells(i, "S").Value) & "|" & _
+            ParseNumber(wsPrev.Cells(i, "X").Value) & "|" & _
+            CleanString(wsPrev.Cells(i, "K").Value) & "|" & _
+            CleanString(wsPrev.Cells(i, "W").Value) & "|" & _
+            CleanString(wsPrev.Cells(i, "T").Value) & "|" & _
+            CleanString(wsPrev.Cells(i, "O").Value) & "|" & _
+            CleanString(wsPrev.Cells(i, "G").Value) & "|" & _
+            CleanString(wsPrev.Cells(i, "AA").Value)
+
+        prev(key) = valueStr
+
+    Next i
+
+    ' =========================
+    ' Build CURR dictionary
+    ' =========================
+    For i = 2 To lastRowCurr
+
+        key = Trim(wsCurr.Cells(i, "D").Value) & "_" & Trim(wsCurr.Cells(i, "P").Value)
+
+        valueStr = _
+            ParseNumber(wsCurr.Cells(i, "S").Value) & "|" & _
+            ParseNumber(wsCurr.Cells(i, "X").Value) & "|" & _
+            CleanString(wsCurr.Cells(i, "K").Value) & "|" & _
+            CleanString(wsCurr.Cells(i, "W").Value) & "|" & _
+            CleanString(wsCurr.Cells(i, "T").Value) & "|" & _
+            CleanString(wsCurr.Cells(i, "O").Value) & "|" & _
+            CleanString(wsCurr.Cells(i, "G").Value) & "|" & _
+            CleanString(wsCurr.Cells(i, "AA").Value)
+
+        curr(key) = valueStr
+
+    Next i
