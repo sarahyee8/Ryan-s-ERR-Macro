@@ -1,0 +1,78 @@
+Select Case j
+
+    Case 0
+        ' === Risk Amount (S) changed ===
+        wsReport.Cells(reportRow, 19).Interior.Color = vbYellow  ' Column S
+
+        If changeReason = "" Then
+            If CleanString(valsCurr(2)) = CleanString(valsPrev(2)) Then
+                changeReason = "Risk Amount Change: " & valsCurr(1) & " " & _
+                               IIf(changeVal >= 0, "+$", "-$") & _
+                               Format(Abs(changeVal), "#,##0.00")
+            End If
+        End If
+
+    Case 2
+        ' === Risk Status / Cancellation Probability (W) changed ===
+        wsReport.Cells(reportRow, 23).Interior.Color = vbYellow  ' Column W
+
+        If changeReason = "" Then
+            If CleanString(valsCurr(2)) <> CleanString(valsPrev(2)) Then
+                changeReason = "Risk Status Change: " & valsCurr(1) & " " & _
+                               IIf(changeVal >= 0, "+$", "-$") & _
+                               Format(Abs(changeVal), "#,##0.00") & _
+                               " (" & valsPrev(2) & " to " & valsCurr(2) & ")"
+            End If
+        End If
+
+    Case 4
+        ' === Sales Group (O) changed ===
+        wsReport.Cells(reportRow, 15).Interior.Color = vbYellow  ' Column O
+
+        If changeReason = "" Then
+            If CleanString(valsCurr(4)) <> CleanString(valsPrev(4)) Then
+                changeReason = "Sales Group Change: " & valsCurr(1) & _
+                               " (" & valsPrev(4) & " to " & valsCurr(4) & ")"
+            End If
+        End If
+
+    Case 3
+        ' === ERR Territory (T) changed ===
+        wsReport.Cells(reportRow, 7).Interior.Color = vbYellow   ' Column G (ERR Territory display)
+
+        If changeReason = "" Then
+            If CleanString(valsCurr(3)) <> CleanString(valsPrev(3)) Then
+                changeReason = "ERR Territory Change: " & valsCurr(1) & _
+                               " (" & valsPrev(3) & " to " & valsCurr(3) & ")"
+            End If
+        End If
+
+    Case 6
+        ' === Year / Quarter / Month (AA) changed ===
+        wsReport.Cells(reportRow, 27).Interior.Color = vbYellow  ' Column AA
+
+        Dim rawString As String
+        Dim yr As Integer, qtr As Integer, mn As Integer
+        Dim checkDate As Date
+
+        rawString = wsReport.Cells(reportRow, 27).Value
+        Dim parts() As String
+        parts = Split(rawString, " ")
+
+        yr = CInt(parts(0))
+        qtr = CInt(parts(2))
+        mn = CInt(parts(4))
+
+        checkDate = DateSerial(yr, mn, 1)
+
+        If changeReason = "" Then
+            If Year(checkDate) < Year(Date) Or _
+               (Year(checkDate) = Year(Date) And Month(checkDate) < Month(Date)) Then
+
+                changeReason = "Opportunity moved over months: (" & _
+                               Format(checkDate, "mmmm yyyy") & " to " & _
+                               Format(Date, "mmmm yyyy") & ")"
+            End If
+        End If
+
+End Select
