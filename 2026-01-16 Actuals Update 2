@@ -253,7 +253,6 @@ Sub CheckDictionaries(prev As Object, curr As Object)
                 wsReport.Rows(reportRow).Interior.Color = RGB(120, 120, 120)  ' grey row
                 wsReport.Cells(reportRow, reasonCol + 1).Value = "Forecast"
 
-                ' Get prev forecast amount and mark as negative (keep using X as you intended)
                 Dim prevAmt As Variant
                 prevAmt = wsReport.Cells(reportRow, "X").Value
                 If IsNumeric(prevAmt) Then
@@ -381,3 +380,4 @@ Private Sub ApplyOppHyperlinkToCell(ByVal targetCell As Range)
         Address:=linkAddress, _
         TextToDisplay:=oppId
 End Sub
+
