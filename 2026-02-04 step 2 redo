@@ -105,3 +105,110 @@ ContinueActualLoop:
         End If
     End If
 Next dictKey
+
+
+
+
+
+
+
+' === Step 2: Forecasts that dropped off ===
+For Each dictKey In prev.Keys
+    If Not curr.Exists(dictKey) Then
+        foundRow = FindRowByKey(wsPrev, CStr(dictKey), lastRowPrev)
+        If foundRow > 0 Then
+
+            ' Copy fallen forecast
+            wsReport.Rows(reportRow).Resize(1, colCount).Value = wsPrev.Rows(foundRow).Resize(1, colCount).Value
+            ApplyOppHyperlinkToCell wsReport.Cells(reportRow, "D")
+            wsReport.Rows(reportRow).Interior.Color = RGB(120, 120, 120)
+            wsReport.Cells(reportRow, reasonCol + 1).Value = "Forecast"
+
+            Dim prevAmt As Variant
+            prevAmt = wsReport.Cells(reportRow, "X").Value
+            If IsNumeric(prevAmt) Then
+                wsReport.Cells(reportRow, changeCol).Value = -ParseNumber(prevAmt)
+            End If
+
+            reportRow = reportRow + 1
+            removedCount = removedCount + 1
+
+            ' --- Actuals matching ---
+            Dim oppId As String, revStream As String, errUser As String, gidbCo As String
+            Dim iAct As Long, lastColAct As Long
+            Dim actAmt As Variant
+
+            oppId = Trim(wsPrev.Cells(foundRow, "D").Value)
+            revStream = Trim(wsPrev.Cells(foundRow, "P").Value)
+            errUser = Trim(wsPrev.Cells(foundRow, "K").Value)
+            gidbCo = Trim(wsPrev.Cells(foundRow, "J").Value)
+
+            Dim keyOppPrev As String, keyEUPrev As String, keyGIDBPrev As String, keyEUGIDBPrev As String
+            keyOppPrev = CleanString(oppId) & "_" & CleanString(revStream)
+            keyEUPrev = CleanString(errUser) & "_" & CleanString(revStream)
+            keyGIDBPrev = CleanString(gidbCo) & "_" & CleanString(revStream)
+            keyEUGIDBPrev = CleanString(errUser) & "_" & CleanString(gidbCo) & "_" & CleanString(revStream)
+
+            Dim keyPeriodPrev As String
+            keyPeriodPrev = CleanString(wsPrev.Cells(foundRow, "AA").Value)
+
+            Dim matchType As String
+            matchType = ""
+
+            For iAct = 2 To lastRowCurrAct
+
+                Dim keyOppAct As String, keyEUAct As String, keyGIDBAct As String, keyEUGIDBAct As String
+                keyOppAct = CleanString(wsCurrAct.Cells(iAct, "T").Value) & "_" & CleanString(wsCurrAct.Cells(iAct, "AI").Value)
+                keyEUAct = CleanString(wsCurrAct.Cells(iAct, "AD").Value) & "_" & CleanString(wsCurrAct.Cells(iAct, "AI").Value)
+                keyGIDBAct = CleanString(wsCurrAct.Cells(iAct, "AC").Value) & "_" & CleanString(wsCurrAct.Cells(iAct, "AI").Value)
+                keyEUGIDBAct = CleanString(wsCurrAct.Cells(iAct, "AD").Value) & "_" & _
+                               CleanString(wsCurrAct.Cells(iAct, "AC").Value) & "_" & _
+                               CleanString(wsCurrAct.Cells(iAct, "AI").Value)
+
+                Dim keyPeriodAct As String
+                keyPeriodAct = CleanString(wsCurrAct.Cells(iAct, "AT").Value)
+
+                If keyPeriodAct = keyPeriodPrev Then
+
+                    ' Determine priority on first hit
+                    If matchType = "" Then
+                        If keyOppAct = keyOppPrev Then
+                            matchType = "OPP"
+                        ElseIf keyEUGIDBAct = keyEUGIDBPrev Then
+                            matchType = "EUGIDB"
+                        ElseIf keyEUAct = keyEUPrev Then
+                            matchType = "EU"
+                        ElseIf keyGIDBAct = keyGIDBPrev Then
+                            matchType = "GIDB"
+                        End If
+                    End If
+
+                    ' Accept only rows of the chosen match type
+                    If (matchType = "OPP" And keyOppAct = keyOppPrev) _
+                       Or (matchType = "EUGIDB" And keyEUGIDBAct = keyEUGIDBPrev) _
+                       Or (matchType = "EU" And keyEUAct = keyEUPrev) _
+                       Or (matchType = "GIDB" And keyGIDBAct = keyGIDBPrev) Then
+
+                        lastColAct = wsCurrAct.Cells(iAct, wsCurrAct.Columns.Count).End(xlToLeft).Column
+                        wsReport.Cells(reportRow, 1).Resize(1, lastColAct - 19 + 1).Value = _
+                            wsCurrAct.Cells(iAct, 20).Resize(1, lastColAct - 19 + 1).Value
+
+                        ApplyOppHyperlinkToCell wsReport.Cells(reportRow, "D")
+
+                        actAmt = wsReport.Cells(reportRow, "X").Value
+                        If IsNumeric(actAmt) Then
+                            wsReport.Cells(reportRow, changeCol).Value = ParseNumber(actAmt)
+                            If ParseNumber(actAmt) <> 0 Then
+                                wsReport.Cells(reportRow, changeCol).Interior.Color = vbYellow
+                            End If
+                        End If
+
+                        wsReport.Cells(reportRow, reasonCol + 1).Value = "Actuals"
+                        reportRow = reportRow + 1
+                        removedCount = removedCount + 1
+                    End If
+                End If
+            Next iAct
+        End If
+    End If
+Next dictKey
