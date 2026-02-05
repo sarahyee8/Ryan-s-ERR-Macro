@@ -309,3 +309,92 @@ For Each dictKey In prev.Keys
     End If
 Next dictKey
 
+
+
+
+
+
+
+
+
+' --- dropped forecast identifiers ---
+            Dim keyOppPrev As String, keyEUPrev As String, keyGIDBPrev As String, keyPeriodPrev As String
+            keyOppPrev = CleanString(wsPrev.Cells(foundRow, "D").Value) & "_" & CleanString(wsPrev.Cells(foundRow, "P").Value)
+            keyEUPrev = CleanString(wsPrev.Cells(foundRow, "K").Value) & "_" & CleanString(wsPrev.Cells(foundRow, "P").Value)
+            keyGIDBPrev = CleanString(wsPrev.Cells(foundRow, "J").Value) & "_" & CleanString(wsPrev.Cells(foundRow, "P").Value)
+            keyPeriodPrev = CleanString(wsPrev.Cells(foundRow, "AA").Value)
+
+            ' --- tracking ---
+            Dim matchedEU As Object, matchedGIDB As Object, alreadyWritten As Object
+            Set matchedEU = CreateObject("Scripting.Dictionary")
+            Set matchedGIDB = CreateObject("Scripting.Dictionary")
+            Set alreadyWritten = CreateObject("Scripting.Dictionary")
+
+            ' ===== PHASE 1: DIRECT MATCHES =====
+            For iAct = 2 To lastRowCurrAct
+
+                Dim errUserAct As String, gidbAct As String, periodAct As String
+                Dim keyOppAct As String, keyEUAct As String, keyGIDBAct As String
+
+                errUserAct = CleanString(wsCurrAct.Cells(iAct, "AD").Value)
+                gidbAct = CleanString(wsCurrAct.Cells(iAct, "AC").Value)
+                periodAct = CleanString(wsCurrAct.Cells(iAct, "AT").Value)
+
+                If periodAct <> keyPeriodPrev Then GoTo NextSeed
+
+                keyOppAct = CleanString(wsCurrAct.Cells(iAct, "T").Value) & "_" & CleanString(wsCurrAct.Cells(iAct, "AI").Value)
+                keyEUAct = errUserAct & "_" & CleanString(wsCurrAct.Cells(iAct, "AI").Value)
+                keyGIDBAct = gidbAct & "_" & CleanString(wsCurrAct.Cells(iAct, "AI").Value)
+
+                If keyOppAct = keyOppPrev Or keyEUAct = keyEUPrev Or keyGIDBAct = keyGIDBPrev Then
+
+                    lastColAct = wsCurrAct.Cells(iAct, wsCurrAct.Columns.Count).End(xlToLeft).Column
+                    wsReport.Cells(reportRow, 1).Resize(1, lastColAct - 19 + 1).Value = _
+                        wsCurrAct.Cells(iAct, 20).Resize(1, lastColAct - 19 + 1).Value
+
+                    ApplyOppHyperlinkToCell wsReport.Cells(reportRow, "D")
+
+                    actAmt = wsReport.Cells(reportRow, "X").Value
+                    If IsNumeric(actAmt) Then wsReport.Cells(reportRow, changeCol).Value = ParseNumber(actAmt)
+
+                    wsReport.Cells(reportRow, reasonCol + 1).Value = "Actuals"
+
+                    If errUserAct <> "" Then matchedEU(errUserAct) = True
+                    If gidbAct <> "" Then matchedGIDB(gidbAct) = True
+                    alreadyWritten(iAct) = True
+
+                    reportRow = reportRow + 1
+                End If
+NextSeed:
+            Next iAct
+
+            ' ===== PHASE 2: EXPANSION =====
+            For iAct = 2 To lastRowCurrAct
+
+                If alreadyWritten.Exists(iAct) Then GoTo NextExpand
+
+                errUserAct = CleanString(wsCurrAct.Cells(iAct, "AD").Value)
+                gidbAct = CleanString(wsCurrAct.Cells(iAct, "AC").Value)
+                periodAct = CleanString(wsCurrAct.Cells(iAct, "AT").Value)
+
+                If periodAct <> keyPeriodPrev Then GoTo NextExpand
+
+                If matchedEU.Exists(errUserAct) Or matchedGIDB.Exists(gidbAct) Then
+
+                    lastColAct = wsCurrAct.Cells(iAct, wsCurrAct.Columns.Count).End(xlToLeft).Column
+                    wsReport.Cells(reportRow, 1).Resize(1, lastColAct - 19 + 1).Value = _
+                        wsCurrAct.Cells(iAct, 20).Resize(1, lastColAct - 19 + 1).Value
+
+                    ApplyOppHyperlinkToCell wsReport.Cells(reportRow, "D")
+
+                    actAmt = wsReport.Cells(reportRow, "X").Value
+                    If IsNumeric(actAmt) Then wsReport.Cells(reportRow, changeCol).Value = ParseNumber(actAmt)
+
+                    wsReport.Cells(reportRow, reasonCol + 1).Value = "Actuals (Related)"
+                    reportRow = reportRow + 1
+                End If
+NextExpand:
+            Next iAct
+        End If
+NextDropped:
+    Next dictKey
