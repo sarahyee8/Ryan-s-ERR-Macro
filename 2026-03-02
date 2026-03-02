@@ -382,3 +382,245 @@ Private Sub ApplyOppHyperlinkToCell(ByVal targetCell As Range)
 End Sub
 
 
+Sub CheckDictionaries(prev As Object, curr As Object)
+
+    Dim wsReport As Worksheet, wsPrev As Worksheet, wsCurr As Worksheet
+    Dim wsCurrAct As Worksheet
+    Dim dictKey As Variant
+    Dim reportRow As Long
+    Dim valsPrev As Variant, valsCurr As Variant
+    Dim foundRow As Long
+    Dim lastRowPrev As Long, lastRowCurr As Long, lastRowCurrAct As Long
+    Dim colCount As Long, changeCol As Long, reasonCol As Long
+    Dim j As Long, maxIdx As Long
+    Dim prevS As Double, currS As Double, changeVal As Double
+    Dim prevVal As String, currVal As String
+    Dim changedCount As Long, newCount As Long, removedCount As Long
+    Dim changeReason As String
+
+    changedCount = 0: newCount = 0: removedCount = 0
+
+    Set wsPrev = ThisWorkbook.Sheets("PrevOpps")
+    Set wsCurr = ThisWorkbook.Sheets("CurrOpps")
+    Set wsCurrAct = ThisWorkbook.Sheets("CurrActuals")
+
+    colCount = wsPrev.Cells(1, wsPrev.Columns.Count).End(xlToLeft).Column
+
+    On Error Resume Next
+    Set wsReport = ThisWorkbook.Sheets("Report")
+    On Error GoTo 0
+
+    If wsReport Is Nothing Then
+        Set wsReport = ThisWorkbook.Sheets.Add
+        wsReport.Name = "Report"
+    Else
+        wsReport.Cells.Clear
+    End If
+
+    wsPrev.Rows(1).Resize(1, colCount).Copy wsReport.Rows(1)
+
+    changeCol = wsReport.Range("AP1").Column
+    reasonCol = changeCol + 1
+
+    wsReport.Cells(1, changeCol).Value = "Change in Amount"
+    wsReport.Cells(1, reasonCol).Value = "Change Reason"
+    wsReport.Cells(1, reasonCol + 1).Value = "Source Type"
+
+    reportRow = 2
+
+    lastRowPrev = wsPrev.Cells(wsPrev.Rows.Count, "D").End(xlUp).Row
+    lastRowCurr = wsCurr.Cells(wsCurr.Rows.Count, "D").End(xlUp).Row
+    lastRowCurrAct = wsCurrAct.Cells(wsCurrAct.Rows.Count, "AI").End(xlUp).Row
+
+    ' ================================
+    ' STEP 1: Compare Forecasts
+    ' ================================
+    For Each dictKey In curr.Keys
+
+        If prev.Exists(dictKey) Then
+
+            If prev(dictKey) <> curr(dictKey) Then
+
+                foundRow = FindRowByKey(wsCurr, CStr(dictKey), lastRowCurr)
+
+                If foundRow > 0 Then
+
+                    wsReport.Rows(reportRow).Resize(1, colCount).Value = _
+                        wsCurr.Rows(foundRow).Resize(1, colCount).Value
+
+                    ApplyOppHyperlinkToCell wsReport.Cells(reportRow, "D")
+
+                    valsPrev = Split(prev(dictKey), "|")
+                    valsCurr = Split(curr(dictKey), "|")
+                    maxIdx = Application.Min(UBound(valsPrev), UBound(valsCurr))
+
+                    changeReason = ""
+
+                    For j = 0 To maxIdx
+
+                        If j = 0 Then
+                            prevVal = CStr(ParseNumber(valsPrev(j)))
+                            currVal = CStr(ParseNumber(valsCurr(j)))
+                        Else
+                            prevVal = CleanString(valsPrev(j))
+                            currVal = CleanString(valsCurr(j))
+                        End If
+
+                        If currVal <> prevVal Then
+
+                            prevS = ParseNumber(valsPrev(0))
+                            currS = ParseNumber(valsCurr(0))
+                            changeVal = prevS - currS
+
+                            Select Case j
+
+                                Case 0
+                                    wsReport.Cells(reportRow, 19).Interior.Color = vbYellow
+
+                                Case 2
+                                    wsReport.Cells(reportRow, 23).Interior.Color = vbYellow
+
+                                Case 4
+                                    wsReport.Cells(reportRow, 15).Interior.Color = vbYellow
+
+                                Case 5
+                                    wsReport.Cells(reportRow, 7).Interior.Color = vbYellow
+
+                                Case 6
+                                    wsReport.Cells(reportRow, 27).Interior.Color = vbYellow
+
+                            End Select
+
+                        End If
+
+                    Next j
+
+                    changeVal = ParseNumber(valsPrev(0)) - ParseNumber(valsCurr(0))
+                    wsReport.Cells(reportRow, changeCol).Value = changeVal
+                    If changeVal <> 0 Then _
+                        wsReport.Cells(reportRow, changeCol).Interior.Color = vbYellow
+
+                    wsReport.Cells(reportRow, reasonCol + 1).Value = "Forecast"
+
+                    reportRow = reportRow + 1
+                    changedCount = changedCount + 1
+
+                End If
+            End If
+
+        Else
+            ' New Forecast
+            foundRow = FindRowByKey(wsCurr, CStr(dictKey), lastRowCurr)
+
+            If foundRow > 0 Then
+
+                wsReport.Rows(reportRow).Resize(1, colCount).Value = _
+                    wsCurr.Rows(foundRow).Resize(1, colCount).Value
+
+                ApplyOppHyperlinkToCell wsReport.Cells(reportRow, "D")
+
+                valsCurr = Split(curr(dictKey), "|")
+                currS = ParseNumber(valsCurr(0))
+
+                wsReport.Cells(reportRow, changeCol).Value = currS
+
+                If currS <> 0 Then _
+                    wsReport.Cells(reportRow, changeCol).Interior.Color = vbYellow
+
+                wsReport.Cells(reportRow, reasonCol + 1).Value = "Forecast"
+
+                reportRow = reportRow + 1
+                newCount = newCount + 1
+
+            End If
+        End If
+
+    Next dictKey
+
+    ' ================================
+    ' STEP 2: Forecasts that Dropped Off
+    ' ================================
+    For Each dictKey In prev.Keys
+
+        If Not curr.Exists(dictKey) Then
+
+            foundRow = FindRowByKey(wsPrev, CStr(dictKey), lastRowPrev)
+
+            If foundRow > 0 Then
+
+                wsReport.Rows(reportRow).Resize(1, colCount).Value = _
+                    wsPrev.Rows(foundRow).Resize(1, colCount).Value
+
+                ApplyOppHyperlinkToCell wsReport.Cells(reportRow, "D")
+
+                wsReport.Rows(reportRow).Interior.Color = RGB(120, 120, 120)
+                wsReport.Cells(reportRow, reasonCol + 1).Value = "Forecast"
+
+                wsReport.Cells(reportRow, changeCol).Value = _
+                    -ParseNumber(wsPrev.Cells(foundRow, "X").Value)
+
+                reportRow = reportRow + 1
+                removedCount = removedCount + 1
+
+                ' ================================
+                ' ACTUALS MATCHING (UPDATED)
+                ' Match ONLY End User + Revenue Stream + Period
+                ' ================================
+
+                Dim keyEUPrev As String
+                keyEUPrev = CleanString(wsPrev.Cells(foundRow, "K").Value) & "_" & _
+                            CleanString(wsPrev.Cells(foundRow, "P").Value)
+
+                Dim keyPeriodPrev As String
+                keyPeriodPrev = CleanString(wsPrev.Cells(foundRow, "AA").Value)
+
+                Dim iAct As Long
+                Dim lastColAct As Long
+                Dim actAmt As Variant
+
+                For iAct = 2 To lastRowCurrAct
+
+                    Dim keyEUAct As String
+                    keyEUAct = CleanString(wsCurrAct.Cells(iAct, "AD").Value) & "_" & _
+                               CleanString(wsCurrAct.Cells(iAct, "AI").Value)
+
+                    Dim keyPeriodAct As String
+                    keyPeriodAct = CleanString(wsCurrAct.Cells(iAct, "AT").Value)
+
+                    If keyEUAct = keyEUPrev And keyPeriodAct = keyPeriodPrev Then
+
+                        lastColAct = wsCurrAct.Cells(iAct, wsCurrAct.Columns.Count).End(xlToLeft).Column
+
+                        wsReport.Cells(reportRow, 1).Resize(1, lastColAct - 19 + 1).Value = _
+                            wsCurrAct.Cells(iAct, 20).Resize(1, lastColAct - 19 + 1).Value
+
+                        ApplyOppHyperlinkToCell wsReport.Cells(reportRow, "D")
+
+                        actAmt = wsReport.Cells(reportRow, "X").Value
+
+                        If IsNumeric(actAmt) Then
+                            wsReport.Cells(reportRow, changeCol).Value = ParseNumber(actAmt)
+                            If ParseNumber(actAmt) <> 0 Then _
+                                wsReport.Cells(reportRow, changeCol).Interior.Color = vbYellow
+                        End If
+
+                        wsReport.Cells(reportRow, reasonCol + 1).Value = "Actuals"
+
+                        reportRow = reportRow + 1
+                        removedCount = removedCount + 1
+
+                    End If
+
+                Next iAct
+
+            End If
+        End If
+
+    Next dictKey
+
+    wsReport.Columns.AutoFit
+
+    MsgBox "Report has been updated.", vbInformation, "Process Complete"
+
+End Sub
+
