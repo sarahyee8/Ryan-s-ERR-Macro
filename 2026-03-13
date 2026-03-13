@@ -1,0 +1,164 @@
+Sub ScorecardLogicAndSplitByOwner_Full()
+    Dim wsCurr As Worksheet, wsPrev As Worksheet
+    Dim dataCurr As Variant, dataPrev As Variant
+    Dim lastRowCurr As Long, lastColCurr As Long
+    Dim lastRowPrev As Long
+    Dim i As Long, j As Long
+    
+    Dim dictPrev As Object
+    Dim dictOwner As Object
+    Dim owner As String
+    Dim wbNew As Workbook, wsFull As Worksheet, wsDest As Worksheet
+    Dim nextRow As Long
+    
+    Set wsCurr = ThisWorkbook.Sheets("CurrOpps")
+    Set wsPrev = ThisWorkbook.Sheets("PrevOpps")
+    
+    lastRowCurr = wsCurr.Cells(wsCurr.Rows.Count, "A").End(xlUp).Row
+    lastColCurr = wsCurr.Cells(1, wsCurr.Columns.Count).End(xlToLeft).Column
+    lastRowPrev = wsPrev.Cells(wsPrev.Rows.Count, "D").End(xlUp).Row
+    
+    dataCurr = wsCurr.Range(wsCurr.Cells(1, 1), wsCurr.Cells(lastRowCurr, lastColCurr)).Value
+    dataPrev = wsPrev.Range(wsPrev.Cells(2, 1), wsPrev.Cells(lastRowPrev, wsPrev.Cells(1, wsPrev.Columns.Count).End(xlToLeft).Column)).Value
+    
+    Set dictPrev = CreateObject("Scripting.Dictionary")
+    For i = 1 To UBound(dataPrev, 1)
+        dictPrev(dataPrev(i, 4)) = i
+    Next i
+    
+    Dim logicArr() As Variant
+    Dim IncludeCol As Long, ChangeGroupCol As Long, ChangeSubCol As Long, ChangeDetailsCol As Long
+    Dim ChangeTerrCol As Long, ChangeSalesCol As Long
+    
+    IncludeCol = lastColCurr + 1
+    ChangeGroupCol = lastColCurr + 2
+    ChangeSubCol = lastColCurr + 3
+    ChangeDetailsCol = lastColCurr + 4
+    ChangeTerrCol = lastColCurr + 5
+    ChangeSalesCol = lastColCurr + 6
+    
+    ReDim logicArr(1 To UBound(dataCurr, 1), 1 To lastColCurr + 6)
+    
+    For j = 1 To lastColCurr
+        logicArr(1, j) = dataCurr(1, j)
+    Next j
+    logicArr(1, IncludeCol) = "Scorecard Include in Movement"
+    logicArr(1, ChangeGroupCol) = "Scorecard Change Group"
+    logicArr(1, ChangeSubCol) = "Scorecard Change Subgroup"
+    logicArr(1, ChangeDetailsCol) = "Scorecard Change Details"
+    logicArr(1, ChangeTerrCol) = "Change in Renewal Territory"
+    logicArr(1, ChangeSalesCol) = "Change in Sales Group"
+    
+    For i = 2 To UBound(dataCurr, 1)
+        For j = 1 To lastColCurr
+            logicArr(i, j) = dataCurr(i, j)
+        Next j
+        
+        Dim oppID As String
+        oppID = dataCurr(i, 1)
+        
+        If dictPrev.exists(oppID) Then
+            Dim prevRow As Long
+            prevRow = dictPrev(oppID)
+            
+            If dataCurr(i, 23) <> dataPrev(prevRow, 7) Then
+                logicArr(i, ChangeTerrCol) = "Y"
+            Else
+                logicArr(i, ChangeTerrCol) = "N"
+            End If
+            
+            If dataCurr(i, 24) <> dataPrev(prevRow, 15) Then
+                logicArr(i, ChangeSalesCol) = "Y"
+            Else
+                logicArr(i, ChangeSalesCol) = "N"
+            End If
+        Else
+            logicArr(i, ChangeTerrCol) = "N"
+            logicArr(i, ChangeSalesCol) = "N"
+        End If
+        
+        If dataCurr(i, 47) = "N" Or dataCurr(i, 48) = "Y" Or dataCurr(i, 49) = "Y" _
+           Or logicArr(i, ChangeTerrCol) = "Y" Or logicArr(i, ChangeSalesCol) = "Y" Then
+            logicArr(i, IncludeCol) = "Y"
+        Else
+            logicArr(i, IncludeCol) = "N"
+        End If
+        
+        If logicArr(i, IncludeCol) = "Y" Then
+            Dim changeGroup As String, changeSub As String, changeDetails As String
+            changeGroup = ""
+            changeSub = ""
+            changeDetails = ""
+            
+            If dataCurr(i, 46) = "N" Then
+                changeGroup = "New / Closed Opportunity"
+                changeSub = "Change in Opps / Actuals for Account ID: " & dataCurr(i, 2)
+                changeDetails = changeSub
+            Else
+                If dataCurr(i, 48) = "Y" Then
+                    changeGroup = "FCT Amount Change"
+                    If dataCurr(i, 50) = "Yes" Then
+                        changeSub = "FCT Amt Change >$50k CoC"
+                        changeDetails = "FCT Amt Change >$50k"
+                    Else
+                        changeSub = "FCT Amt Change <$50k CoC"
+                        changeDetails = "FCT Amt Change <$50k"
+                    End If
+                End If
+                
+                If dataCurr(i, 49) = "Y" Then
+                    If changeGroup = "" Then changeGroup = "Moved Months" Else changeGroup = changeGroup & " + Moved Months"
+                    If changeSub = "" Then changeSub = "Moved Months CoC" Else changeSub = changeSub & " + Moved Months CoC"
+                    changeDetails = IIf(changeDetails = "", "Moved Months", changeDetails & "; Moved Months")
+                End If
+                
+                If logicArr(i, ChangeTerrCol) = "Y" Then
+                    If changeGroup = "" Then changeGroup = "Territory Change" Else changeGroup = changeGroup & " + Territory Change"
+                    If changeSub = "" Then changeSub = "Territory Change" Else changeSub = changeSub & " + Territory Change"
+                    changeDetails = IIf(changeDetails = "", "Territory Change", changeDetails & "; Territory Change")
+                End If
+                
+                If logicArr(i, ChangeSalesCol) = "Y" Then
+                    If changeGroup = "" Then changeGroup = "Sales Group Change" Else changeGroup = changeGroup & " + Sales Group Change"
+                    If changeSub = "" Then changeSub = "Sales Group Change" Else changeSub = changeSub & " + Sales Group Change"
+                    changeDetails = IIf(changeDetails = "", "Sales Group Change", changeDetails & "; Sales Group Change")
+                End If
+                
+                If changeGroup = "" Then changeGroup = "Other Change"
+                If changeSub = "" Then changeSub = "Other Change"
+                If changeDetails = "" Then changeDetails = "Other Change"
+            End If
+            
+            logicArr(i, ChangeGroupCol) = changeGroup
+            logicArr(i, ChangeSubCol) = changeSub
+            logicArr(i, ChangeDetailsCol) = changeDetails
+        End If
+    Next i
+    
+    Set wbNew = Workbooks.Add
+    Set wsFull = wbNew.Sheets(1)
+    wsFull.Name = "FullScorecardLogic"
+    wsFull.Range("A1").Resize(UBound(logicArr, 1), UBound(logicArr, 2)).Value = logicArr
+    
+    Set dictOwner = CreateObject("Scripting.Dictionary")
+    
+    For i = 2 To UBound(logicArr, 1)
+        owner = logicArr(i, 17)
+        If owner = "" Then owner = "Blank"
+        
+        If Not dictOwner.exists(owner) Then
+            Set wsDest = wbNew.Sheets.Add(After:=wbNew.Sheets(wbNew.Sheets.Count))
+            On Error Resume Next
+            wsDest.Name = Left(owner, 31)
+            On Error GoTo 0
+            wsDest.Range("A1").Resize(1, UBound(logicArr, 2)).Value = Application.Index(logicArr, 1, 0)
+            dictOwner.Add owner, wsDest.Name
+        End If
+        
+        Set wsDest = wbNew.Sheets(dictOwner(owner))
+        nextRow = wsDest.Cells(wsDest.Rows.Count, "A").End(xlUp).Row + 1
+        wsDest.Range("A" & nextRow).Resize(1, UBound(logicArr, 2)).Value = Application.Index(logicArr, i, 0)
+    Next i
+    
+    MsgBox "Scorecard logic complete! Full logic printed in first sheet and data split by Revenue Stream Owner."
+End Sub
