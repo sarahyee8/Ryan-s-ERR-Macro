@@ -1,0 +1,58 @@
+Sub SplitByRevenueStreamOwner()
+
+    Dim wsSource As Worksheet
+    Dim wbNew As Workbook
+    Dim wsDest As Worksheet
+    
+    Dim lastRow As Long
+    Dim lastCol As Long
+    Dim i As Long
+    
+    Dim owner As String
+    Dim dict As Object
+    
+    Set wsSource = ThisWorkbook.Sheets(1) 'source sheet
+    Set wbNew = Workbooks.Add
+    
+    Set dict = CreateObject("Scripting.Dictionary")
+    
+    lastRow = wsSource.Cells(wsSource.Rows.Count, "A").End(xlUp).Row
+    lastCol = wsSource.Cells(1, wsSource.Columns.Count).End(xlToLeft).Column
+    
+    'Loop through rows
+    For i = 2 To lastRow
+    
+        owner = wsSource.Cells(i, 17).Value 'Column Q = 17
+        
+        If owner = "" Then owner = "Blank"
+        
+        'Create new sheet if it doesn't exist
+        If Not dict.exists(owner) Then
+        
+            Set wsDest = wbNew.Sheets.Add(After:=wbNew.Sheets(wbNew.Sheets.Count))
+            
+            On Error Resume Next
+            wsDest.Name = Left(owner, 31) 'sheet name limit
+            On Error GoTo 0
+            
+            'Copy header
+            wsSource.Range(wsSource.Cells(1, 1), wsSource.Cells(1, lastCol)).Copy _
+                wsDest.Cells(1, 1)
+                
+            dict.Add owner, wsDest.Name
+        
+        End If
+        
+        'Write row to correct sheet
+        Set wsDest = wbNew.Sheets(dict(owner))
+        
+        nextRow = wsDest.Cells(wsDest.Rows.Count, "A").End(xlUp).Row + 1
+        
+        wsSource.Range(wsSource.Cells(i, 1), wsSource.Cells(i, lastCol)).Copy _
+            wsDest.Cells(nextRow, 1)
+    
+    Next i
+    
+    MsgBox "Sheets created successfully!"
+
+End Sub
