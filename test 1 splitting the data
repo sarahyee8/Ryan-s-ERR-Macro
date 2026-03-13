@@ -56,3 +56,21 @@ Sub SplitByRevenueStreamOwner()
     MsgBox "Sheets created successfully!"
 
 End Sub
+
+Include in Movement: =IF([@ID]="","",IF(OR($BU2="N",[@[Change in Fct Amount]]="Y",[@[Change in Month]]="Y"),"Y","N"))
+Change Group: =IF([@[Include in Movement]]="Y",IF($BU2="N","Opps Closed Since Last PTG | New Opps Since Last PTG | Additional Actuals",IF($BV2="Y","Moved from "&XLOOKUP([@[Opportunity ID]],PrevOpps!$D:$D,PrevOpps!$AA:$AA),"FCT Amt Changed CoC")),"")
+Change Subgroup: =IF([@[Include in Movement]]="Y",
+IF([@[Opp Exist Prev]]="N","Change in Opps / Actuals for Account ID: "&[@[Account ID]],
+IF([@[Change in Month]]="N",
+IF(AND([@[Change in Fct Amount]]="Y",[@[FCT Change>50k]]="Yes"),"FCT Amt Change >$50k CoC",IF(AND([@[Change in Fct Amount]]="Y",[@[FCT Change>50k]]="No"),"FCT Amt Change <$50k CoC","No FCT Amt Change CoC")),
+IF(AND([@[Change in Fct Amount]]="Y",[@[FCT Change>50k]]="Yes"),"Moved Months and FCT Amt Change >$50k CoC",IF(AND([@[Change in Fct Amount]]="Y",[@[FCT Change>50k]]="No"),"Moved Months and FCT Amt Change <$50k CoC","Moved Months and No FCT Amt Change CoC")))),"Change in Opps / Actuals for Account ID: "&[@[Account ID]])
+
+Change Details: =IF([@[Include in Movement]]="Y",
+IF([@[Opp Exist Prev]]="N","Change in Opps / Actuals for Account ID: "&[@[Account ID]],
+IF([@[Change in Month]]="N",
+IF(AND([@[Change in Fct Amount]]="Y",[@[FCT Change>50k]]="Yes"),"FCT Amt Change >$50k CoC",IF(AND([@[Change in Fct Amount]]="Y",[@[FCT Change>50k]]="No"),"FCT Amt Change <$50k CoC","No FCT Amt Change CoC")),
+IF(AND([@[Change in Fct Amount]]="Y",[@[FCT Change>50k]]="Yes"),"Moved Months and FCT Amt Change >$50k CoC",IF(AND([@[Change in Fct Amount]]="Y",[@[FCT Change>50k]]="No"),"Moved Months and FCT Amt Change <$50k CoC","Moved Months and No FCT Amt Change CoC")))),"Change in Opps / Actuals for Account ID: "&[@[Account ID]])
+
+Change in Renewal Territory: =IF($BU2="Y",IF([@[Renewal Territory]]=XLOOKUP([@[Opportunity ID]],PrevOpps!$D:$D,PrevOpps!$G:$G),"N","Y"),"")
+
+Change in Sales Group: =IF($BU2="Y",IF([@[Sales Group]]=XLOOKUP([@[Opportunity ID]],PrevOpps!$D:$D,PrevOpps!$O:$O),"N","Y"),"")
