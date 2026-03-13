@@ -74,3 +74,153 @@ IF(AND([@[Change in Fct Amount]]="Y",[@[FCT Change>50k]]="Yes"),"Moved Months an
 Change in Renewal Territory: =IF($BU2="Y",IF([@[Renewal Territory]]=XLOOKUP([@[Opportunity ID]],PrevOpps!$D:$D,PrevOpps!$G:$G),"N","Y"),"")
 
 Change in Sales Group: =IF($BU2="Y",IF([@[Sales Group]]=XLOOKUP([@[Opportunity ID]],PrevOpps!$D:$D,PrevOpps!$O:$O),"N","Y"),"")
+
+
+
+Sub ScorecardLogicAndSplitByOwner()
+    Dim wsCurr As Worksheet, wsPrev As Worksheet
+    Dim dataCurr As Variant, dataPrev As Variant
+    Dim lastRowCurr As Long, lastColCurr As Long
+    Dim lastRowPrev As Long
+    Dim i As Long, j As Long
+    
+    Dim dictPrev As Object
+    Dim dictOwner As Object
+    Dim owner As String
+    Dim wbNew As Workbook, wsDest As Worksheet
+    Dim nextRow As Long
+    
+    ' --- Set sheets ---
+    Set wsCurr = ThisWorkbook.Sheets("CurrOpps")
+    Set wsPrev = ThisWorkbook.Sheets("PrevOpps")
+    
+    ' --- Determine last rows/cols ---
+    lastRowCurr = wsCurr.Cells(wsCurr.Rows.Count, "A").End(xlUp).Row
+    lastColCurr = wsCurr.Cells(1, wsCurr.Columns.Count).End(xlToLeft).Column
+    lastRowPrev = wsPrev.Cells(wsPrev.Rows.Count, "D").End(xlUp).Row ' Opportunity ID in PrevOpps column D
+    
+    ' --- Load data into arrays ---
+    dataCurr = wsCurr.Range(wsCurr.Cells(1, 1), wsCurr.Cells(lastRowCurr, lastColCurr)).Value
+    dataPrev = wsPrev.Range(wsPrev.Cells(2, 1), wsPrev.Cells(lastRowPrev, wsPrev.Cells(1, wsPrev.Columns.Count).End(xlToLeft).Column)).Value
+    
+    ' --- Create dictionary for PrevOpps lookup by Opportunity ID ---
+    Set dictPrev = CreateObject("Scripting.Dictionary")
+    For i = 1 To UBound(dataPrev, 1)
+        dictPrev(dataPrev(i, 4)) = i ' Column D = Opportunity ID
+    Next i
+    
+    ' --- Extend CurrOpps array for Scorecard logic columns ---
+    Dim logicArr() As Variant
+    Dim IncludeCol As Long, ChangeGroupCol As Long, ChangeSubCol As Long, ChangeDetailsCol As Long
+    Dim ChangeTerrCol As Long, ChangeSalesCol As Long
+    
+    IncludeCol = lastColCurr + 1
+    ChangeGroupCol = lastColCurr + 2
+    ChangeSubCol = lastColCurr + 3
+    ChangeDetailsCol = lastColCurr + 4
+    ChangeTerrCol = lastColCurr + 5
+    ChangeSalesCol = lastColCurr + 6
+    
+    ReDim logicArr(1 To UBound(dataCurr, 1), 1 To lastColCurr + 6)
+    
+    ' --- Copy original data and add headers for Scorecard logic columns ---
+    For j = 1 To lastColCurr
+        logicArr(1, j) = dataCurr(1, j)
+    Next j
+    logicArr(1, IncludeCol) = "Scorecard Include in Movement"
+    logicArr(1, ChangeGroupCol) = "Scorecard Change Group"
+    logicArr(1, ChangeSubCol) = "Scorecard Change Subgroup"
+    logicArr(1, ChangeDetailsCol) = "Scorecard Change Details"
+    logicArr(1, ChangeTerrCol) = "Change in Renewal Territory"
+    logicArr(1, ChangeSalesCol) = "Change in Sales Group"
+    
+    ' --- Loop through CurrOpps rows to compute Scorecard logic ---
+    For i = 2 To UBound(dataCurr, 1)
+        ' Copy original data
+        For j = 1 To lastColCurr
+            logicArr(i, j) = dataCurr(i, j)
+        Next j
+        
+        Dim oppID As String
+        oppID = dataCurr(i, 1) ' assuming Opportunity ID is column 1
+        
+        ' --- Change in Renewal Territory ---
+        If dictPrev.exists(oppID) Then
+            Dim prevRow As Long
+            prevRow = dictPrev(oppID)
+            
+            If dataCurr(i, 23) <> dataPrev(prevRow, 7) Then ' CurrOpps Renewal Territory vs PrevOpps column G
+                logicArr(i, ChangeTerrCol) = "Y"
+            Else
+                logicArr(i, ChangeTerrCol) = "N"
+            End If
+            
+            ' --- Change in Sales Group ---
+            If dataCurr(i, 24) <> dataPrev(prevRow, 15) Then ' CurrOpps Sales Group vs PrevOpps column O
+                logicArr(i, ChangeSalesCol) = "Y"
+            Else
+                logicArr(i, ChangeSalesCol) = "N"
+            End If
+        Else
+            logicArr(i, ChangeTerrCol) = "N"
+            logicArr(i, ChangeSalesCol) = "N"
+        End If
+        
+        ' --- Scorecard Include in Movement ---
+        If dataCurr(i, 47) = "N" Or dataCurr(i, 48) = "Y" Or dataCurr(i, 49) = "Y" _
+           Or logicArr(i, ChangeTerrCol) = "Y" Or logicArr(i, ChangeSalesCol) = "Y" Then
+            logicArr(i, IncludeCol) = "Y"
+        Else
+            logicArr(i, IncludeCol) = "N"
+        End If
+        
+        ' --- Scorecard Change Group ---
+        If logicArr(i, IncludeCol) = "Y" Then
+            If dataCurr(i, 47) = "N" Then
+                logicArr(i, ChangeGroupCol) = "Opps Closed Since Last PTG | New Opps Since Last PTG | Additional Actuals"
+            ElseIf logicArr(i, ChangeTerrCol) = "Y" Or logicArr(i, ChangeSalesCol) = "Y" Then
+                logicArr(i, ChangeGroupCol) = "Territory or Sales Group Changed"
+            Else
+                logicArr(i, ChangeGroupCol) = "FCT Amt Changed CoC"
+            End If
+        End If
+        
+        ' --- Scorecard Change Subgroup & Details ---
+        If logicArr(i, IncludeCol) = "Y" Then
+            If dataCurr(i, 46) = "N" Then ' Opp Exist Prev
+                logicArr(i, ChangeSubCol) = "Change in Opps / Actuals for Account ID: " & dataCurr(i, 2)
+                logicArr(i, ChangeDetailsCol) = logicArr(i, ChangeSubCol)
+            Else
+                logicArr(i, ChangeSubCol) = logicArr(i, ChangeGroupCol)
+                logicArr(i, ChangeDetailsCol) = logicArr(i, ChangeGroupCol)
+            End If
+        End If
+        
+    Next i
+    
+    ' --- Create new workbook and dictionary for Revenue Stream Owner sheets ---
+    Set wbNew = Workbooks.Add
+    Set dictOwner = CreateObject("Scripting.Dictionary")
+    
+    For i = 2 To UBound(logicArr, 1)
+        owner = logicArr(i, 17) ' Column Q = 17
+        If owner = "" Then owner = "Blank"
+        
+        If Not dictOwner.exists(owner) Then
+            Set wsDest = wbNew.Sheets.Add(After:=wbNew.Sheets(wbNew.Sheets.Count))
+            On Error Resume Next
+            wsDest.Name = Left(owner, 31)
+            On Error GoTo 0
+            ' Copy headers
+            wsDest.Range("A1").Resize(1, UBound(logicArr, 2)).Value = Application.Index(logicArr, 1, 0)
+            dictOwner.Add owner, wsDest.Name
+        End If
+        
+        ' Append row
+        Set wsDest = wbNew.Sheets(dictOwner(owner))
+        nextRow = wsDest.Cells(wsDest.Rows.Count, "A").End(xlUp).Row + 1
+        wsDest.Range("A" & nextRow).Resize(1, UBound(logicArr, 2)).Value = Application.Index(logicArr, i, 0)
+    Next i
+    
+    MsgBox "Scorecard logic processed and new workbook created with sheets per Revenue Stream Owner."
+End Sub
