@@ -438,3 +438,138 @@ Sub ScorecardLogic_Full_XLookup()
     
     MsgBox "Scorecard logic with XLOOKUP-style changes applied successfully!"
 End Sub
+
+
+
+
+Sub ScorecardLogic_Full_XLookup_Clean()
+    Dim wsCurr As Worksheet, wsPrev As Worksheet
+    Dim dataCurr As Variant, dataPrev As Variant
+    Dim lastRowCurr As Long, lastColCurr As Long, lastRowPrev As Long
+    Dim i As Long, j As Long
+    Dim dictPrev As Object
+    Dim wbNew As Workbook, wsFull As Worksheet
+    
+    Set wsCurr = ThisWorkbook.Sheets("CurrOpps")
+    Set wsPrev = ThisWorkbook.Sheets("PrevOpps")
+    
+    lastRowCurr = wsCurr.Cells(wsCurr.Rows.Count, "A").End(xlUp).Row
+    lastColCurr = wsCurr.Cells(1, wsCurr.Columns.Count).End(xlToLeft).Column
+    lastRowPrev = wsPrev.Cells(wsPrev.Rows.Count, "D").End(xlUp).Row
+    
+    dataCurr = wsCurr.Range(wsCurr.Cells(1, 1), wsCurr.Cells(lastRowCurr, lastColCurr)).Value
+    dataPrev = wsPrev.Range(wsPrev.Cells(2, 1), wsPrev.Cells(lastRowPrev, wsPrev.Cells(1, wsPrev.Columns.Count).End(xlToLeft).Column)).Value
+    
+    Set dictPrev = CreateObject("Scripting.Dictionary")
+    For i = 1 To UBound(dataPrev, 1)
+        dictPrev(dataPrev(i, 4)) = i
+    Next i
+    
+    Dim ChangeTerrCol As Long, ChangeSalesCol As Long
+    Dim IncludeCol As Long, ChangeGroupCol As Long, ChangeSubCol As Long, ChangeDetailsCol As Long
+    
+    ChangeTerrCol = lastColCurr + 1
+    ChangeSalesCol = lastColCurr + 2
+    IncludeCol = lastColCurr + 3
+    ChangeGroupCol = lastColCurr + 4
+    ChangeSubCol = lastColCurr + 5
+    ChangeDetailsCol = lastColCurr + 6
+    
+    Dim logicArr() As Variant
+    ReDim logicArr(1 To UBound(dataCurr, 1), 1 To lastColCurr + 6)
+    
+    For j = 1 To lastColCurr
+        logicArr(1, j) = dataCurr(1, j)
+    Next j
+    logicArr(1, ChangeTerrCol) = "Change in Renewal Territory"
+    logicArr(1, ChangeSalesCol) = "Change in Sales Group"
+    logicArr(1, IncludeCol) = "Scorecard Include in Movement"
+    logicArr(1, ChangeGroupCol) = "Scorecard Change Group"
+    logicArr(1, ChangeSubCol) = "Scorecard Change Subgroup"
+    logicArr(1, ChangeDetailsCol) = "Scorecard Change Details"
+    
+    For i = 2 To UBound(dataCurr, 1)
+        For j = 1 To lastColCurr
+            logicArr(i, j) = dataCurr(i, j)
+        Next j
+        
+        Dim oppID As String
+        Dim prevRow As Long
+        oppID = dataCurr(i, 1)
+        
+        If dataCurr(i, 73) = "Y" Then
+            If dictPrev.exists(oppID) Then
+                prevRow = dictPrev(oppID)
+                If dataCurr(i, 7) = dataPrev(prevRow, 7) Then
+                    logicArr(i, ChangeTerrCol) = "N"
+                Else
+                    logicArr(i, ChangeTerrCol) = "Y"
+                End If
+                If dataCurr(i, 15) = dataPrev(prevRow, 15) Then
+                    logicArr(i, ChangeSalesCol) = "N"
+                Else
+                    logicArr(i, ChangeSalesCol) = "Y"
+                End If
+            Else
+                logicArr(i, ChangeTerrCol) = "Y"
+                logicArr(i, ChangeSalesCol) = "Y"
+            End If
+        Else
+            logicArr(i, ChangeTerrCol) = ""
+            logicArr(i, ChangeSalesCol) = ""
+        End If
+        
+        logicArr(i, IncludeCol) = IIf(dataCurr(i, 73) = "N" Or dataCurr(i, 79) = "Y" Or dataCurr(i, 74) = "Y" _
+            Or logicArr(i, ChangeTerrCol) = "Y" Or logicArr(i, ChangeSalesCol) = "Y", "Y", "N")
+        
+        If logicArr(i, IncludeCol) = "Y" Then
+            Dim cg As String, cs As String, cd As String
+            cg = ""
+            cs = ""
+            cd = ""
+            
+            If dataCurr(i, 73) = "N" Then
+                cg = "Opps Closed Since Last PTG | New Opps Since Last PTG | Additional Actuals"
+                cs = "Change in Opps / Actuals for Account ID: " & dataCurr(i, 2)
+                cd = cs
+            Else
+                If dataCurr(i, 74) = "Y" Then cg = "Moved from Previous Month"
+                If dataCurr(i, 79) = "Y" Then
+                    If dataCurr(i, 80) = "Yes" Then
+                        cs = "FCT Amt Change >$50k CoC"
+                        cd = "FCT Amt Change >$50k"
+                    Else
+                        cs = "FCT Amt Change <$50k CoC"
+                        cd = "FCT Amt Change <$50k"
+                    End If
+                End If
+                If dataCurr(i, 74) = "Y" Then
+                    cs = IIf(cs = "", "Moved Months CoC", cs & " + Moved Months CoC")
+                    cd = IIf(cd = "", "Moved Months", cd & "; Moved Months")
+                End If
+                If logicArr(i, ChangeTerrCol) = "Y" Then
+                    cs = IIf(cs = "", "Territory Change", cs & " + Territory Change")
+                    cd = IIf(cd = "", "Territory Change", cd & "; Territory Change")
+                End If
+                If logicArr(i, ChangeSalesCol) = "Y" Then
+                    cs = IIf(cs = "", "Sales Group Change", cs & " + Sales Group Change")
+                    cd = IIf(cd = "", "Sales Group Change", cd & "; Sales Group Change")
+                End If
+                If cg = "" Then cg = "FCT Amt Changed CoC"
+                If cs = "" Then cs = "Other Change"
+                If cd = "" Then cd = "Other Change"
+            End If
+            
+            logicArr(i, ChangeGroupCol) = cg
+            logicArr(i, ChangeSubCol) = cs
+            logicArr(i, ChangeDetailsCol) = cd
+        End If
+    Next i
+    
+    Set wbNew = Workbooks.Add
+    Set wsFull = wbNew.Sheets(1)
+    wsFull.Name = "FullScorecardLogic"
+    wsFull.Range("A1").Resize(UBound(logicArr, 1), UBound(logicArr, 2)).Value = logicArr
+    
+    MsgBox "Scorecard logic with exact XLOOKUP formulas applied successfully!"
+End Sub
