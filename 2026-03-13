@@ -1,15 +1,10 @@
-Sub ScorecardLogicAndSplitByOwner_Full()
+Sub ScorecardLogic_Full()
     Dim wsCurr As Worksheet, wsPrev As Worksheet
     Dim dataCurr As Variant, dataPrev As Variant
-    Dim lastRowCurr As Long, lastColCurr As Long
-    Dim lastRowPrev As Long
+    Dim lastRowCurr As Long, lastColCurr As Long, lastRowPrev As Long
     Dim i As Long, j As Long
-    
     Dim dictPrev As Object
-    Dim dictOwner As Object
-    Dim owner As String
-    Dim wbNew As Workbook, wsFull As Worksheet, wsDest As Worksheet
-    Dim nextRow As Long
+    Dim wbNew As Workbook, wsFull As Worksheet
     
     Set wsCurr = ThisWorkbook.Sheets("CurrOpps")
     Set wsPrev = ThisWorkbook.Sheets("PrevOpps")
@@ -39,6 +34,7 @@ Sub ScorecardLogicAndSplitByOwner_Full()
     
     ReDim logicArr(1 To UBound(dataCurr, 1), 1 To lastColCurr + 6)
     
+    ' Copy headers
     For j = 1 To lastColCurr
         logicArr(1, j) = dataCurr(1, j)
     Next j
@@ -49,6 +45,7 @@ Sub ScorecardLogicAndSplitByOwner_Full()
     logicArr(1, ChangeTerrCol) = "Change in Renewal Territory"
     logicArr(1, ChangeSalesCol) = "Change in Sales Group"
     
+    ' Loop through rows
     For i = 2 To UBound(dataCurr, 1)
         For j = 1 To lastColCurr
             logicArr(i, j) = dataCurr(i, j)
@@ -57,81 +54,71 @@ Sub ScorecardLogicAndSplitByOwner_Full()
         Dim oppID As String
         oppID = dataCurr(i, 1)
         
+        ' Compute Renewal Territory and Sales Group change
+        Dim prevRow As Long
         If dictPrev.exists(oppID) Then
-            Dim prevRow As Long
             prevRow = dictPrev(oppID)
-            
-            If dataCurr(i, 23) <> dataPrev(prevRow, 7) Then
-                logicArr(i, ChangeTerrCol) = "Y"
-            Else
-                logicArr(i, ChangeTerrCol) = "N"
-            End If
-            
-            If dataCurr(i, 24) <> dataPrev(prevRow, 15) Then
-                logicArr(i, ChangeSalesCol) = "Y"
-            Else
-                logicArr(i, ChangeSalesCol) = "N"
-            End If
+            logicArr(i, ChangeTerrCol) = IIf(dataCurr(i, 84) <> dataPrev(prevRow, 7), "Y", "N")
+            logicArr(i, ChangeSalesCol) = IIf(dataCurr(i, 85) <> dataPrev(prevRow, 15), "Y", "N")
         Else
             logicArr(i, ChangeTerrCol) = "N"
             logicArr(i, ChangeSalesCol) = "N"
         End If
         
-        If dataCurr(i, 47) = "N" Or dataCurr(i, 48) = "Y" Or dataCurr(i, 49) = "Y" _
-           Or logicArr(i, ChangeTerrCol) = "Y" Or logicArr(i, ChangeSalesCol) = "Y" Then
-            logicArr(i, IncludeCol) = "Y"
-        Else
-            logicArr(i, IncludeCol) = "N"
-        End If
+        ' Scorecard Include in Movement
+        logicArr(i, IncludeCol) = IIf(dataCurr(i, 73) = "N" Or dataCurr(i, 79) = "Y" Or dataCurr(i, 74) = "Y" _
+            Or logicArr(i, ChangeTerrCol) = "Y" Or logicArr(i, ChangeSalesCol) = "Y", "Y", "N")
         
+        ' Change Group, Subgroup, Details
         If logicArr(i, IncludeCol) = "Y" Then
-            Dim changeGroup As String, changeSub As String, changeDetails As String
-            changeGroup = ""
-            changeSub = ""
-            changeDetails = ""
+            Dim cg As String, cs As String, cd As String
+            cg = ""
+            cs = ""
+            cd = ""
             
-            If dataCurr(i, 46) = "N" Then
-                changeGroup = "New / Closed Opportunity"
-                changeSub = "Change in Opps / Actuals for Account ID: " & dataCurr(i, 2)
-                changeDetails = changeSub
+            If dataCurr(i, 73) = "N" Then
+                cg = "Opps Closed Since Last PTG | New Opps Since Last PTG | Additional Actuals"
+                cs = "Change in Opps / Actuals for Account ID: " & dataCurr(i, 2)
+                cd = cs
             Else
-                If dataCurr(i, 48) = "Y" Then
-                    changeGroup = "FCT Amount Change"
-                    If dataCurr(i, 50) = "Yes" Then
-                        changeSub = "FCT Amt Change >$50k CoC"
-                        changeDetails = "FCT Amt Change >$50k"
+                If dataCurr(i, 74) = "Y" Then cg = "Moved from Previous Month"
+                If dataCurr(i, 79) = "Y" Then
+                    If dataCurr(i, 80) = "Yes" Then
+                        cs = "FCT Amt Change >$50k CoC"
+                        cd = "FCT Amt Change >$50k"
                     Else
-                        changeSub = "FCT Amt Change <$50k CoC"
-                        changeDetails = "FCT Amt Change <$50k"
+                        cs = "FCT Amt Change <$50k CoC"
+                        cd = "FCT Amt Change <$50k"
                     End If
                 End If
                 
-                If dataCurr(i, 49) = "Y" Then
-                    If changeGroup = "" Then changeGroup = "Moved Months" Else changeGroup = changeGroup & " + Moved Months"
-                    If changeSub = "" Then changeSub = "Moved Months CoC" Else changeSub = changeSub & " + Moved Months CoC"
-                    changeDetails = IIf(changeDetails = "", "Moved Months", changeDetails & "; Moved Months")
+                ' Combine month change
+                If dataCurr(i, 74) = "Y" Then
+                    cs = IIf(cs = "", "Moved Months CoC", cs & " + Moved Months CoC")
+                    cd = IIf(cd = "", "Moved Months", cd & "; Moved Months")
                 End If
                 
+                ' Combine Renewal Territory
                 If logicArr(i, ChangeTerrCol) = "Y" Then
-                    If changeGroup = "" Then changeGroup = "Territory Change" Else changeGroup = changeGroup & " + Territory Change"
-                    If changeSub = "" Then changeSub = "Territory Change" Else changeSub = changeSub & " + Territory Change"
-                    changeDetails = IIf(changeDetails = "", "Territory Change", changeDetails & "; Territory Change")
+                    cs = IIf(cs = "", "Territory Change", cs & " + Territory Change")
+                    cd = IIf(cd = "", "Territory Change", cd & "; Territory Change")
                 End If
                 
+                ' Combine Sales Group
                 If logicArr(i, ChangeSalesCol) = "Y" Then
-                    If changeGroup = "" Then changeGroup = "Sales Group Change" Else changeGroup = changeGroup & " + Sales Group Change"
-                    If changeSub = "" Then changeSub = "Sales Group Change" Else changeSub = changeSub & " + Sales Group Change"
-                    changeDetails = IIf(changeDetails = "", "Sales Group Change", changeDetails & "; Sales Group Change")
+                    cs = IIf(cs = "", "Sales Group Change", cs & " + Sales Group Change")
+                    cd = IIf(cd = "", "Sales Group Change", cd & "; Sales Group Change")
                 End If
                 
-                If changeGroup = "" Then changeGroup = "Other Change"
-                If changeSub = "" Then changeSub = "Other Change"
-                If changeDetails = "" Then changeDetails = "Other Change"
+                ' Fallback if empty
+                If cg = "" Then cg = "FCT Amt Changed CoC"
+                If cs = "" Then cs = "Other Change"
+                If cd = "" Then cd = "Other Change"
             End If
             
-            logicArr(i, ChangeGroupCol) = changeGroup
-            logicArr(i, ChangeSubCol) = changeSub
-            logicArr(i, ChangeDetailsCol) = changeDetails
+            logicArr(i, ChangeGroupCol) = cg
+            logicArr(i, ChangeSubCol) = cs
+            logicArr(i, ChangeDetailsCol) = cd
         End If
     Next i
     
@@ -140,25 +127,5 @@ Sub ScorecardLogicAndSplitByOwner_Full()
     wsFull.Name = "FullScorecardLogic"
     wsFull.Range("A1").Resize(UBound(logicArr, 1), UBound(logicArr, 2)).Value = logicArr
     
-    Set dictOwner = CreateObject("Scripting.Dictionary")
-    
-    For i = 2 To UBound(logicArr, 1)
-        owner = logicArr(i, 17)
-        If owner = "" Then owner = "Blank"
-        
-        If Not dictOwner.exists(owner) Then
-            Set wsDest = wbNew.Sheets.Add(After:=wbNew.Sheets(wbNew.Sheets.Count))
-            On Error Resume Next
-            wsDest.Name = Left(owner, 31)
-            On Error GoTo 0
-            wsDest.Range("A1").Resize(1, UBound(logicArr, 2)).Value = Application.Index(logicArr, 1, 0)
-            dictOwner.Add owner, wsDest.Name
-        End If
-        
-        Set wsDest = wbNew.Sheets(dictOwner(owner))
-        nextRow = wsDest.Cells(wsDest.Rows.Count, "A").End(xlUp).Row + 1
-        wsDest.Range("A" & nextRow).Resize(1, UBound(logicArr, 2)).Value = Application.Index(logicArr, i, 0)
-    Next i
-    
-    MsgBox "Scorecard logic complete! Full logic printed in first sheet and data split by Revenue Stream Owner."
+    MsgBox "Scorecard logic applied successfully!"
 End Sub
