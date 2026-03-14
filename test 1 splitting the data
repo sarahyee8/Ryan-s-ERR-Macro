@@ -65,11 +65,7 @@ IF([@[Change in Month]]="N",
 IF(AND([@[Change in Fct Amount]]="Y",[@[FCT Change>50k]]="Yes"),"FCT Amt Change >$50k CoC",IF(AND([@[Change in Fct Amount]]="Y",[@[FCT Change>50k]]="No"),"FCT Amt Change <$50k CoC","No FCT Amt Change CoC")),
 IF(AND([@[Change in Fct Amount]]="Y",[@[FCT Change>50k]]="Yes"),"Moved Months and FCT Amt Change >$50k CoC",IF(AND([@[Change in Fct Amount]]="Y",[@[FCT Change>50k]]="No"),"Moved Months and FCT Amt Change <$50k CoC","Moved Months and No FCT Amt Change CoC")))),"Change in Opps / Actuals for Account ID: "&[@[Account ID]])
 
-Change Details: =IF([@[Include in Movement]]="Y",
-IF([@[Opp Exist Prev]]="N","Change in Opps / Actuals for Account ID: "&[@[Account ID]],
-IF([@[Change in Month]]="N",
-IF(AND([@[Change in Fct Amount]]="Y",[@[FCT Change>50k]]="Yes"),"FCT Amt Change >$50k CoC",IF(AND([@[Change in Fct Amount]]="Y",[@[FCT Change>50k]]="No"),"FCT Amt Change <$50k CoC","No FCT Amt Change CoC")),
-IF(AND([@[Change in Fct Amount]]="Y",[@[FCT Change>50k]]="Yes"),"Moved Months and FCT Amt Change >$50k CoC",IF(AND([@[Change in Fct Amount]]="Y",[@[FCT Change>50k]]="No"),"Moved Months and FCT Amt Change <$50k CoC","Moved Months and No FCT Amt Change CoC")))),"Change in Opps / Actuals for Account ID: "&[@[Account ID]])
+Change Details:=IF([@[Opp Exist Prev]]="Y",IF($BW2="Y","Gross Amt: "&TEXT(SUMIF(PrevOpps!$D:$D,[@[Opportunity ID]],PrevOpps!$R:$R),"$##,##0")&" -> "&TEXT(SUMIF($D:$D,[@[Opportunity ID]],$R:$R),"$##,##0")&";  ","")&IF($BX2="Y","Risk Status: "&XLOOKUP([@[Opportunity ID]],PrevOpps!$D:$D,PrevOpps!$U:$U)&" -> "&[@[Renewal Risk Status]]&";  ","")&IF($BY2="Y","Risk Prob: "&XLOOKUP([@[Opportunity ID]],PrevOpps!$D:$D,PrevOpps!$AQ:$AQ)&" -> "&[@[PTG Risk]]&";  ","")&IF($BZ2="Y","Risk Amt: "&TEXT(SUMIF(PrevOpps!$D:$D,[@[Opportunity ID]],PrevOpps!$AC:$AC),"$##,##0")&" -> "&TEXT(SUMIF($D:$D,[@[Opportunity ID]],$AC:$AC),"$##,##0")&";  ","")&IF($CA2="Y","FCT Amt: "&TEXT(SUMIF(PrevOpps!$D:$D,[@[Opportunity ID]],PrevOpps!$AD:$AD),"$##,##0")&" -> "&TEXT(SUMIF($D:$D,[@[Opportunity ID]],$AD:$AD),"$##,##0"),""),"This Opp was not included in the last cycle")
 
 Change in Renewal Territory: =IF($BU2="Y",IF([@[Renewal Territory]]=XLOOKUP([@[Opportunity ID]],PrevOpps!$D:$D,PrevOpps!$G:$G),"N","Y"),"")
 
