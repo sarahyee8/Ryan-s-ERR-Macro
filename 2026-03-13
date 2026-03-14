@@ -1108,3 +1108,150 @@ Sub ScorecardLogic_FullMerged_Dict()
     
     MsgBox "Scorecard logic fully merged with dictionaries for risk/gross changes applied!"
 End Sub
+
+
+
+
+Sub ScorecardLogic_Full_Semicolons()
+    Dim wsCurr As Worksheet, wsPrev As Worksheet
+    Dim dataCurr As Variant, dataPrev As Variant
+    Dim lastRowCurr As Long, lastColCurr As Long, lastRowPrev As Long
+    Dim i As Long, j As Long
+    Dim dictPrev As Object
+    Dim dictGross As Object, dictRiskStatus As Object, dictRiskProb As Object, dictRiskAmt As Object, dictFCTAmt As Object
+    Dim wbNew As Workbook, wsFull As Worksheet
+    
+    Set wsCurr = ThisWorkbook.Sheets("CurrOpps")
+    Set wsPrev = ThisWorkbook.Sheets("PrevOpps")
+    
+    lastRowCurr = wsCurr.Cells(wsCurr.Rows.Count, "A").End(xlUp).Row
+    lastColCurr = wsCurr.Cells(1, wsCurr.Columns.Count).End(xlToLeft).Column
+    lastRowPrev = wsPrev.Cells(wsPrev.Rows.Count, "D").End(xlUp).Row
+    
+    dataCurr = wsCurr.Range(wsCurr.Cells(1, 1), wsCurr.Cells(lastRowCurr, lastColCurr)).Value
+    dataPrev = wsPrev.Range(wsPrev.Cells(2, 1), wsPrev.Cells(lastRowPrev, wsPrev.Cells(1, wsPrev.Columns.Count).End(xlToLeft).Column)).Value
+    
+    Set dictPrev = CreateObject("Scripting.Dictionary")
+    Set dictGross = CreateObject("Scripting.Dictionary")
+    Set dictRiskStatus = CreateObject("Scripting.Dictionary")
+    Set dictRiskProb = CreateObject("Scripting.Dictionary")
+    Set dictRiskAmt = CreateObject("Scripting.Dictionary")
+    Set dictFCTAmt = CreateObject("Scripting.Dictionary")
+    
+    For i = 1 To UBound(dataPrev, 1)
+        Dim oppID As String
+        oppID = Trim(CStr(dataPrev(i, 4)))
+        dictPrev(oppID) = i
+        dictGross(oppID) = dataPrev(i, 18) ' R
+        dictRiskStatus(oppID) = dataPrev(i, 21) ' U
+        dictRiskProb(oppID) = dataPrev(i, 43) ' AQ
+        dictRiskAmt(oppID) = dataPrev(i, 29) ' AC
+        dictFCTAmt(oppID) = dataPrev(i, 30) ' AD
+    Next i
+    
+    Dim ChangeTerrCol As Long, ChangeSalesCol As Long
+    Dim IncludeCol As Long, ChangeGroupCol As Long, ChangeSubCol As Long, ChangeDetailsCol As Long
+    
+    ChangeTerrCol = lastColCurr + 1
+    ChangeSalesCol = lastColCurr + 2
+    IncludeCol = lastColCurr + 3
+    ChangeGroupCol = lastColCurr + 4
+    ChangeSubCol = lastColCurr + 5
+    ChangeDetailsCol = lastColCurr + 6
+    
+    Dim logicArr() As Variant
+    ReDim logicArr(1 To UBound(dataCurr, 1), 1 To lastColCurr + 6)
+    
+    For j = 1 To lastColCurr
+        logicArr(1, j) = dataCurr(1, j)
+    Next j
+    logicArr(1, ChangeTerrCol) = "Change in Renewal Territory"
+    logicArr(1, ChangeSalesCol) = "Change in Sales Group"
+    logicArr(1, IncludeCol) = "Scorecard Include in Movement"
+    logicArr(1, ChangeGroupCol) = "Scorecard Change Group"
+    logicArr(1, ChangeSubCol) = "Scorecard Change Subgroup"
+    logicArr(1, ChangeDetailsCol) = "Scorecard Change Details"
+    
+    For i = 2 To UBound(dataCurr, 1)
+        For j = 1 To lastColCurr
+            logicArr(i, j) = dataCurr(i, j)
+        Next j
+        
+        oppID = Trim(CStr(dataCurr(i, 1)))
+        
+        ' Change in Renewal Territory and Sales Group
+        If dataCurr(i, 73) = "Y" Then
+            If dictPrev.exists(oppID) Then
+                logicArr(i, ChangeTerrCol) = IIf(Trim(CStr(dataCurr(i, 7))) = Trim(CStr(dataPrev(dictPrev(oppID), 7))), "N", "Y")
+                logicArr(i, ChangeSalesCol) = IIf(Trim(CStr(dataCurr(i, 15))) = Trim(CStr(dataPrev(dictPrev(oppID), 15))), "N", "Y")
+            Else
+                logicArr(i, ChangeTerrCol) = "Y"
+                logicArr(i, ChangeSalesCol) = "Y"
+            End If
+        Else
+            logicArr(i, ChangeTerrCol) = ""
+            logicArr(i, ChangeSalesCol) = ""
+        End If
+        
+        ' Include in Movement
+        logicArr(i, IncludeCol) = IIf(dataCurr(i, 73) = "N" Or dataCurr(i, 79) = "Y" Or dataCurr(i, 74) = "Y" _
+            Or logicArr(i, ChangeTerrCol) = "Y" Or logicArr(i, ChangeSalesCol) = "Y", "Y", "N")
+        
+        Dim cg As String, cs As String, cd As String
+        cg = "": cs = "": cd = ""
+        
+        If logicArr(i, IncludeCol) = "Y" Then
+            If dataCurr(i, 73) = "N" Then
+                cg = "Opps Closed Since Last PTG | New Opps Since Last PTG | Additional Actuals"
+                cs = "Change in Opps / Actuals for Account ID: " & dataCurr(i, 2)
+                cd = cs
+            Else
+                If dataCurr(i, 74) = "Y" Then cg = "Moved from Previous Month"
+                If dataCurr(i, 79) = "Y" Then
+                    If dataCurr(i, 80) = "Yes" Then
+                        cs = "FCT Amt Change >$50k CoC"
+                    Else
+                        cs = "FCT Amt Change <$50k CoC"
+                    End If
+                End If
+                If dataCurr(i, 74) = "Y" Then
+                    cs = IIf(cs = "", "Moved Months CoC", cs & "; Moved Months CoC")
+                End If
+                If logicArr(i, ChangeTerrCol) = "Y" Then
+                    cs = IIf(cs = "", "Territory Change", cs & "; Territory Change")
+                End If
+                If logicArr(i, ChangeSalesCol) = "Y" Then
+                    cs = IIf(cs = "", "Sales Group Change", cs & "; Sales Group Change")
+                End If
+                
+                ' Build Change Details with semicolons
+                cd = ""
+                If dataCurr(i, 74) = "Y" Then cd = cd & "Moved Months; "
+                If logicArr(i, ChangeTerrCol) = "Y" Then cd = cd & "Territory Change; "
+                If logicArr(i, ChangeSalesCol) = "Y" Then cd = cd & "Sales Group Change; "
+                If dataCurr(i, 75) = "Y" Then cd = cd & "Gross Amt: " & Format(dictGross(oppID), "$#,##0") & " -> " & Format(dataCurr(i, 18), "$#,##0") & "; "
+                If dataCurr(i, 76) = "Y" Then cd = cd & "Risk Status: " & dictRiskStatus(oppID) & " -> " & dataCurr(i, 21) & "; "
+                If dataCurr(i, 77) = "Y" Then cd = cd & "Risk Prob: " & dictRiskProb(oppID) & " -> " & dataCurr(i, 43) & "; "
+                If dataCurr(i, 78) = "Y" Then cd = cd & "Risk Amt: " & Format(dictRiskAmt(oppID), "$#,##0") & " -> " & Format(dataCurr(i, 29), "$#,##0") & "; "
+                If dataCurr(i, 79) = "Y" Then cd = cd & "FCT Amt: " & Format(dictFCTAmt(oppID), "$#,##0") & " -> " & Format(dataCurr(i, 30), "$#,##0")
+                
+                If cg = "" Then cg = "FCT Amt Changed CoC"
+                If cs = "" Then cs = "Other Change"
+                If cd = "" Then cd = "Other Change"
+            End If
+            
+            logicArr(i, ChangeGroupCol) = cg
+            logicArr(i, ChangeSubCol) = cs
+            logicArr(i, ChangeDetailsCol) = cd
+        Else
+            If dataCurr(i, 73) = "N" Then logicArr(i, ChangeDetailsCol) = "This Opp was not included in the last cycle"
+        End If
+    Next i
+    
+    Set wbNew = Workbooks.Add
+    Set wsFull = wbNew.Sheets(1)
+    wsFull.Name = "FullScorecardLogic"
+    wsFull.Range("A1").Resize(UBound(logicArr, 1), UBound(logicArr, 2)).Value = logicArr
+    
+    MsgBox "Scorecard logic applied with semicolons in Change Details!"
+End Sub
