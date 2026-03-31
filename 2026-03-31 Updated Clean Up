@@ -1,0 +1,55 @@
+Private Sub FormatPersonSheet(ByVal ws As Worksheet)
+
+    Dim keepCols As Variant
+    Dim s1Header As Long, s1Start As Long, s1End As Long
+    Dim s2Title As Long, s2Header As Long, s2Start As Long, s2End As Long
+    Dim s3Title As Long, s3Header As Long, s3Start As Long, s3End As Long
+    Dim lastRow As Long
+    
+    keepCols = Array("O", "BJ", "BK", "D", "G", "Q", "F", "E", "K", "I", "AC", "AD", "AA", "U", "W", "BU", "CJ", "CM", "CG", "CN")
+    
+    lastRow = LastUsedRow(ws)
+    If lastRow = 0 Then Exit Sub
+    
+    s1Header = 2
+    s1Start = 3
+    
+    s2Title = FindRowByTextInColA(ws, "No Changes Detected")
+    s3Title = FindRowByTextInColA(ws, "Closed Opportunities")
+    
+    If s2Title > 0 Then
+        s1End = s2Title - 1
+    ElseIf s3Title > 0 Then
+        s1End = s3Title - 1
+    Else
+        s1End = lastRow
+    End If
+    
+    RebuildSection ws, 1, s1Header, s1Start, s1End, keepCols, "tblChanges_" & ws.Name
+    
+    If s2Title > 0 Then
+        
+        s2Header = s2Title + 1
+        s2Start = s2Title + 2
+        
+        If s3Title > 0 Then
+            s2End = s3Title - 1
+        Else
+            s2End = lastRow
+        End If
+        
+        RebuildSection ws, 2, s2Header, s2Start, s2End, keepCols, "tblNoChanges_" & ws.Name
+    End If
+    
+    If s3Title > 0 Then
+        
+        s3Header = s3Title + 1
+        s3Start = s3Title + 2
+        s3End = lastRow
+        
+        RebuildSection ws, 3, s3Header, s3Start, s3End, keepCols, "tblClosed_" & ws.Name
+    End If
+    
+    ws.Columns.AutoFit
+
+End Sub
