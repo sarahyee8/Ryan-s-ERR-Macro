@@ -1,5 +1,12 @@
 Option Explicit
 
+Public Sub RunFinalProcess()
+    Call CurrOppAnalysisAggregate
+    Call DistributeFinalOpps_ByCJ
+End Sub
+
+Option Explicit
+
 Public Sub CurrOppAnalysisAggregate()
 
     Dim wsCurr As Worksheet, wsPrev As Worksheet, wsFull As Worksheet
