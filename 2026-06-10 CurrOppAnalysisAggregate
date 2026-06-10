@@ -308,3 +308,325 @@ Private Function FormatDateForDetails(ByVal v As Variant) As String
         FormatDateForDetails = CStr(v)
     End If
 End Function
+
+
+
+
+
+
+
+
+
+Option Explicit
+
+Public Sub CurrOppAnalysisAggregate()
+
+    Dim wsCurr As Worksheet, wsPrev As Worksheet, wsFull As Worksheet
+    Dim dataCurr As Variant, dataPrev As Variant
+    Dim lastRowCurr As Long, lastColCurr As Long
+    Dim lastRowPrev As Long, lastColPrev As Long
+    Dim i As Long, j As Long
+    Dim outRow As Long
+    Dim prevClosedCount As Long
+    Dim totalCols As Long
+    
+    Dim dictPrev As Object
+    Dim dictGross As Object, dictRiskStatus As Object, dictRiskProb As Object
+    Dim dictRiskAmt As Object, dictFCTAmt As Object
+    
+    Dim ChangeTerrCol As Long, ChangeSalesCol As Long
+    Dim RenewDateFlagCol As Long
+    Dim IncludeCol As Long, ChangeGroupCol As Long
+    Dim ChangeSubCol As Long, ChangeDetailsCol As Long
+    Dim ForecastSourceCol As Long
+    
+    Dim logicArr() As Variant
+    Dim oppID As String
+    Dim prevStatus As String
+    Dim hasOppID As Boolean, hasEndUser As Boolean, isClosed As Boolean
+    Dim cg As String, cs As String, cd As String
+    Dim renewalDateIssue As Boolean
+    
+    Set wsCurr = ThisWorkbook.Sheets("CurrOpps")
+    Set wsPrev = ThisWorkbook.Sheets("PrevOpps")
+    
+    lastRowCurr = wsCurr.Cells(wsCurr.Rows.Count, "A").End(xlUp).Row
+    lastColCurr = wsCurr.Cells(1, wsCurr.Columns.Count).End(xlToLeft).Column
+    lastRowPrev = wsPrev.Cells(wsPrev.Rows.Count, "D").End(xlUp).Row
+    lastColPrev = wsPrev.Cells(1, wsPrev.Columns.Count).End(xlToLeft).Column
+    
+    dataCurr = wsCurr.Range(wsCurr.Cells(1, 1), wsCurr.Cells(lastRowCurr, lastColCurr)).Value
+    dataPrev = wsPrev.Range(wsPrev.Cells(2, 1), wsPrev.Cells(lastRowPrev, lastColPrev)).Value
+    
+    Set dictPrev = CreateObject("Scripting.Dictionary")
+    Set dictGross = CreateObject("Scripting.Dictionary")
+    Set dictRiskStatus = CreateObject("Scripting.Dictionary")
+    Set dictRiskProb = CreateObject("Scripting.Dictionary")
+    Set dictRiskAmt = CreateObject("Scripting.Dictionary")
+    Set dictFCTAmt = CreateObject("Scripting.Dictionary")
+    
+    For i = 1 To UBound(dataPrev, 1)
+        oppID = Trim$(CStr(dataPrev(i, 4))) ' PrevOpps column D
+        
+        If Len(oppID) > 0 Then
+            dictPrev(oppID) = i
+            dictGross(oppID) = dataPrev(i, 18)
+            dictRiskStatus(oppID) = dataPrev(i, 21)
+            dictRiskProb(oppID) = dataPrev(i, 43)
+            dictRiskAmt(oppID) = dataPrev(i, 29)
+            dictFCTAmt(oppID) = dataPrev(i, 30)
+        End If
+    Next i
+    
+    prevClosedCount = 0
+    
+    For i = 1 To UBound(dataPrev, 1)
+        hasOppID = Len(Trim$(CStr(dataPrev(i, 4)))) > 0
+        hasEndUser = Len(Trim$(CStr(dataPrev(i, 11)))) > 0
+        prevStatus = Trim$(CStr(dataPrev(i, 63)))
+        isClosed = (prevStatus = "Opp Closed Won/Lost")
+        
+        If (hasOppID Or hasEndUser) And isClosed Then
+            prevClosedCount = prevClosedCount + 1
+        End If
+    Next i
+    
+    ' New appended column order:
+    ' CH = Change in Renewal Territory
+    ' CI = Change in Sales Group
+    ' CJ = PTG Renewal Expected Date Past Anniversary
+    ' CK = Scorecard Include in Movement
+    ' CL = Scorecard Change Group
+    ' CM = Scorecard Change Subgroup
+    ' CN = Scorecard Change Details
+    ' CO = Forecast Source
+    
+    ChangeTerrCol = lastColCurr + 1
+    ChangeSalesCol = lastColCurr + 2
+    RenewDateFlagCol = lastColCurr + 3
+    IncludeCol = lastColCurr + 4
+    ChangeGroupCol = lastColCurr + 5
+    ChangeSubCol = lastColCurr + 6
+    ChangeDetailsCol = lastColCurr + 7
+    ForecastSourceCol = lastColCurr + 8
+    
+    totalCols = lastColCurr + 8
+    
+    ReDim logicArr(1 To UBound(dataCurr, 1) + prevClosedCount, 1 To totalCols)
+    
+    For j = 1 To lastColCurr
+        logicArr(1, j) = dataCurr(1, j)
+    Next j
+    
+    logicArr(1, ChangeTerrCol) = "Change in Renewal Territory"
+    logicArr(1, ChangeSalesCol) = "Change in Sales Group"
+    logicArr(1, RenewDateFlagCol) = "PTG Renewal Expected Date Past Anniversary"
+    logicArr(1, IncludeCol) = "Scorecard Include in Movement"
+    logicArr(1, ChangeGroupCol) = "Scorecard Change Group"
+    logicArr(1, ChangeSubCol) = "Scorecard Change Subgroup"
+    logicArr(1, ChangeDetailsCol) = "Scorecard Change Details"
+    logicArr(1, ForecastSourceCol) = "Forecast Source"
+    
+    outRow = 2
+    
+    For i = 2 To UBound(dataCurr, 1)
+    
+        If Len(Trim$(CStr(dataCurr(i, 4)))) > 0 Or _
+           Len(Trim$(CStr(dataCurr(i, 11)))) > 0 Then
+    
+            For j = 1 To lastColCurr
+                logicArr(outRow, j) = dataCurr(i, j)
+            Next j
+            
+            oppID = Trim$(CStr(dataCurr(i, 4))) ' CurrOpps column D
+            
+            renewalDateIssue = IsPTGDatePastAnniversary(dataCurr(i, 25), dataCurr(i, 26))
+            
+            If renewalDateIssue Then
+                logicArr(outRow, RenewDateFlagCol) = "Y"
+            Else
+                logicArr(outRow, RenewDateFlagCol) = "N"
+            End If
+            
+            If dataCurr(i, 73) = "Y" Then
+                If Len(oppID) > 0 And dictPrev.Exists(oppID) Then
+                    logicArr(outRow, ChangeTerrCol) = IIf(Trim$(CStr(dataCurr(i, 7))) = Trim$(CStr(dataPrev(dictPrev(oppID), 7))), "N", "Y")
+                    logicArr(outRow, ChangeSalesCol) = IIf(Trim$(CStr(dataCurr(i, 15))) = Trim$(CStr(dataPrev(dictPrev(oppID), 15))), "N", "Y")
+                Else
+                    logicArr(outRow, ChangeTerrCol) = "Y"
+                    logicArr(outRow, ChangeSalesCol) = "Y"
+                End If
+            Else
+                logicArr(outRow, ChangeTerrCol) = ""
+                logicArr(outRow, ChangeSalesCol) = ""
+            End If
+            
+            logicArr(outRow, IncludeCol) = IIf( _
+                dataCurr(i, 73) = "N" Or _
+                dataCurr(i, 79) = "Y" Or _
+                dataCurr(i, 74) = "Y" Or _
+                logicArr(outRow, ChangeTerrCol) = "Y" Or _
+                logicArr(outRow, ChangeSalesCol) = "Y" Or _
+                renewalDateIssue = True, _
+                "Y", "N")
+            
+            cg = ""
+            cs = ""
+            cd = ""
+            
+            If logicArr(outRow, IncludeCol) = "Y" Then
+            
+                If dataCurr(i, 73) = "N" Then
+                    cg = "Opps Closed Since Last PTG | New Opps Since Last PTG | Additional Actuals"
+                    cs = "Change in Opps / Actuals for Account ID: " & dataCurr(i, 2)
+                    cd = cs
+                    
+                    If renewalDateIssue Then
+                        cs = cs & "; PTG Renewal Expected Date Past Anniversary"
+                        cd = cd & "; Renewal Anniversary Date: " & FormatDateForDetails(dataCurr(i, 25)) & _
+                                  " -> PTG Renewal Expected Date: " & FormatDateForDetails(dataCurr(i, 26)) & _
+                                  " - PTG date is past renewal anniversary"
+                    End If
+                    
+                Else
+                    If dataCurr(i, 74) = "Y" Then cg = "Moved from Previous Month"
+                    
+                    If dataCurr(i, 79) = "Y" Then
+                        If dataCurr(i, 80) = "Yes" Then
+                            cs = "FCT Amt Change >$50k CoC"
+                        Else
+                            cs = "FCT Amt Change <$50k CoC"
+                        End If
+                    End If
+                    
+                    If dataCurr(i, 74) = "Y" Then
+                        cs = IIf(cs = "", "Moved Months CoC", cs & "; Moved Months CoC")
+                    End If
+                    
+                    If logicArr(outRow, ChangeTerrCol) = "Y" Then
+                        cs = IIf(cs = "", "Territory Change", cs & "; Territory Change")
+                    End If
+                    
+                    If logicArr(outRow, ChangeSalesCol) = "Y" Then
+                        cs = IIf(cs = "", "Sales Group Change", cs & "; Sales Group Change")
+                    End If
+                    
+                    If renewalDateIssue Then
+                        cs = IIf(cs = "", "PTG Renewal Expected Date Past Anniversary", cs & "; PTG Renewal Expected Date Past Anniversary")
+                    End If
+                    
+                    cd = ""
+                    
+                    If dataCurr(i, 74) = "Y" Then cd = cd & "Moved Months; "
+                    If logicArr(outRow, ChangeTerrCol) = "Y" Then cd = cd & "Territory Change; "
+                    If logicArr(outRow, ChangeSalesCol) = "Y" Then cd = cd & "Sales Group Change; "
+                    
+                    If renewalDateIssue Then
+                        cd = cd & "Renewal Anniversary Date: " & FormatDateForDetails(dataCurr(i, 25)) & _
+                                  " -> PTG Renewal Expected Date: " & FormatDateForDetails(dataCurr(i, 26)) & _
+                                  " - PTG date is past renewal anniversary; "
+                    End If
+                    
+                    If Len(oppID) > 0 And dictPrev.Exists(oppID) Then
+                        If dataCurr(i, 75) = "Y" Then cd = cd & "Gross Amt: " & Format(dictGross(oppID), "$#,##0") & " -> " & Format(dataCurr(i, 18), "$#,##0") & "; "
+                        If dataCurr(i, 76) = "Y" Then cd = cd & "Risk Status: " & dictRiskStatus(oppID) & " -> " & dataCurr(i, 21) & "; "
+                        If dataCurr(i, 77) = "Y" Then cd = cd & "Risk Prob: " & dictRiskProb(oppID) & " -> " & dataCurr(i, 43) & "; "
+                        If dataCurr(i, 78) = "Y" Then cd = cd & "Risk Amt: " & Format(dictRiskAmt(oppID), "$#,##0") & " -> " & Format(dataCurr(i, 29), "$#,##0") & "; "
+                        If dataCurr(i, 79) = "Y" Then cd = cd & "FCT Amt: " & Format(dictFCTAmt(oppID), "$#,##0") & " -> " & Format(dataCurr(i, 30), "$#,##0")
+                    End If
+                    
+                    If cg = "" Then cg = "FCT Amt Changed CoC"
+                    If cs = "" Then cs = "Other Change"
+                    If cd = "" Then cd = "Other Change"
+                End If
+                
+                logicArr(outRow, ChangeGroupCol) = cg
+                logicArr(outRow, ChangeSubCol) = cs
+                logicArr(outRow, ChangeDetailsCol) = cd
+            
+            Else
+                If dataCurr(i, 73) = "N" Then
+                    logicArr(outRow, ChangeDetailsCol) = "This Opp was not included in the last cycle"
+                End If
+            End If
+            
+            logicArr(outRow, ForecastSourceCol) = "Current"
+            outRow = outRow + 1
+        
+        End If
+    
+    Next i
+    
+    For i = 1 To UBound(dataPrev, 1)
+        hasOppID = Len(Trim$(CStr(dataPrev(i, 4)))) > 0
+        hasEndUser = Len(Trim$(CStr(dataPrev(i, 11)))) > 0
+        prevStatus = Trim$(CStr(dataPrev(i, 63)))
+        isClosed = (prevStatus = "Opp Closed Won/Lost")
+        
+        If (hasOppID Or hasEndUser) And isClosed Then
+        
+            For j = 1 To 51
+                logicArr(outRow, j) = dataPrev(i, j)
+            Next j
+            
+            logicArr(outRow, 62) = dataPrev(i, 53)   ' BJ <- BA
+            logicArr(outRow, 63) = dataPrev(i, 54)   ' BK <- BB
+            logicArr(outRow, 64) = dataPrev(i, 55)   ' BL <- BC
+            logicArr(outRow, 73) = dataPrev(i, 56)   ' BU <- BD
+            logicArr(outRow, 74) = dataPrev(i, 57)   ' BV <- BE
+            logicArr(outRow, 79) = dataPrev(i, 58)   ' CA <- BF
+            logicArr(outRow, 80) = dataPrev(i, 59)   ' CB <- BG
+            logicArr(outRow, 81) = dataPrev(i, 60)   ' CC <- BH
+            logicArr(outRow, 82) = dataPrev(i, 61)   ' CD <- BI
+            logicArr(outRow, 83) = dataPrev(i, 62)   ' CE <- BJ
+            logicArr(outRow, 84) = dataPrev(i, 63)   ' CF <- BK
+            logicArr(outRow, 85) = dataPrev(i, 64)   ' CG <- BL
+            
+            logicArr(outRow, ChangeTerrCol) = ""
+            logicArr(outRow, ChangeSalesCol) = ""
+            logicArr(outRow, RenewDateFlagCol) = ""
+            logicArr(outRow, IncludeCol) = "Y"
+            logicArr(outRow, ChangeGroupCol) = "Opps Closed Since Last PTG | New Opps Since Last PTG | Additional Actuals"
+            logicArr(outRow, ChangeSubCol) = "Previous Forecast - Closed Won/Lost"
+            logicArr(outRow, ChangeDetailsCol) = dataPrev(i, 63)
+            logicArr(outRow, ForecastSourceCol) = "Previous"
+            
+            outRow = outRow + 1
+        End If
+    Next i
+    
+    On Error Resume Next
+    Application.DisplayAlerts = False
+    ThisWorkbook.Sheets("FinalOpps").Delete
+    Application.DisplayAlerts = True
+    On Error GoTo 0
+    
+    Set wsFull = ThisWorkbook.Sheets.Add
+    wsFull.Name = "FinalOpps"
+    
+    wsFull.Range(wsFull.Cells(1, 1), wsFull.Cells(outRow - 1, totalCols)).Value = logicArr
+    wsFull.Columns.AutoFit
+
+End Sub
+
+Private Function IsPTGDatePastAnniversary(ByVal renewalAnniversaryDate As Variant, ByVal ptgRenewalExpectedDate As Variant) As Boolean
+    If Not IsDate(renewalAnniversaryDate) Then
+        IsPTGDatePastAnniversary = False
+        Exit Function
+    End If
+    
+    If Not IsDate(ptgRenewalExpectedDate) Then
+        IsPTGDatePastAnniversary = False
+        Exit Function
+    End If
+    
+    IsPTGDatePastAnniversary = (DateValue(CDate(ptgRenewalExpectedDate)) > DateValue(CDate(renewalAnniversaryDate)))
+End Function
+
+Private Function FormatDateForDetails(ByVal v As Variant) As String
+    If IsDate(v) Then
+        FormatDateForDetails = Format$(CDate(v), "yyyy-mm-dd")
+    Else
+        FormatDateForDetails = CStr(v)
+    End If
+End Function
