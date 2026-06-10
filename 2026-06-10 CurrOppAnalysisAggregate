@@ -630,3 +630,373 @@ Private Function FormatDateForDetails(ByVal v As Variant) As String
         FormatDateForDetails = CStr(v)
     End If
 End Function
+
+
+
+
+
+
+
+Option Explicit
+
+Public Sub DistributeFinalOpps_ByCJ()
+    Dim wb As Workbook
+    Dim wsSrc As Worksheet
+    Dim lastRow As Long, lastCol As Long
+    Dim dataArr As Variant, headerArr As Variant
+    Dim dictSheets As Object
+    Dim dictNextY As Object
+    Dim dictNextN As Object
+    Dim dictNextClosed As Object
+    Dim dictNStarted As Object
+    Dim dictClosedStarted As Object
+    
+    Dim r As Long
+    Dim person As String, safeName As String
+    Dim includeFlag As String
+    Dim forecastSource As String
+    Dim wsP As Worksheet
+    Dim targetRow As Long
+    Dim startNRow As Long
+    Dim startClosedRow As Long
+    
+    Dim personCol As Long
+    Dim includeCol As Long
+    Dim forecastSourceCol As Long
+    
+    On Error GoTo CleanFail
+    
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    Application.Calculation = xlCalculationManual
+    
+    Set wb = ThisWorkbook
+    Set wsSrc = wb.Worksheets("FinalOpps")
+    
+    personCol = 17 ' Column Q
+    includeCol = FindHeaderColumn(wsSrc, "Scorecard Include in Movement")
+    forecastSourceCol = FindHeaderColumn(wsSrc, "Forecast Source")
+    
+    If includeCol = 0 Then
+        MsgBox "Could not find header: Scorecard Include in Movement", vbExclamation
+        GoTo CleanExit
+    End If
+    
+    If forecastSourceCol = 0 Then
+        MsgBox "Could not find header: Forecast Source", vbExclamation
+        GoTo CleanExit
+    End If
+    
+    Set dictSheets = CreateObject("Scripting.Dictionary")
+    Set dictNextY = CreateObject("Scripting.Dictionary")
+    Set dictNextN = CreateObject("Scripting.Dictionary")
+    Set dictNextClosed = CreateObject("Scripting.Dictionary")
+    Set dictNStarted = CreateObject("Scripting.Dictionary")
+    Set dictClosedStarted = CreateObject("Scripting.Dictionary")
+    
+    dictSheets.CompareMode = vbTextCompare
+    dictNextY.CompareMode = vbTextCompare
+    dictNextN.CompareMode = vbTextCompare
+    dictNextClosed.CompareMode = vbTextCompare
+    dictNStarted.CompareMode = vbTextCompare
+    dictClosedStarted.CompareMode = vbTextCompare
+    
+    lastRow = wsSrc.Cells(wsSrc.Rows.Count, personCol).End(xlUp).Row
+    lastCol = wsSrc.Cells(1, wsSrc.Columns.Count).End(xlToLeft).Column
+    
+    If lastRow < 2 Then GoTo CleanExit
+    
+    headerArr = wsSrc.Range(wsSrc.Cells(1, 1), wsSrc.Cells(1, lastCol)).Value
+    dataArr = wsSrc.Range(wsSrc.Cells(2, 1), wsSrc.Cells(lastRow, lastCol)).Value
+    
+    For r = 1 To UBound(dataArr, 1)
+        person = Trim$(CStr(dataArr(r, personCol)))
+        
+        If Len(person) > 0 Then
+            safeName = MakeSafeSheetName(person)
+            
+            If Not dictSheets.Exists(safeName) Then
+                dictSheets.Add safeName, True
+                
+                Set wsP = GetOrCreateSheet(wb, safeName)
+                wsP.Cells.Clear
+                
+                AddTopAnalyticsLayout wsP
+                
+                With wsP.Cells(10, 1)
+                    .Value = "Changes Detected"
+                    .Font.Bold = True
+                    .Font.Size = 16
+                End With
+                
+                wsP.Range(wsP.Cells(11, 1), wsP.Cells(11, lastCol)).Value = headerArr
+                
+                dictNextY.Add safeName, 12
+                dictClosedStarted.Add safeName, False
+                dictNStarted.Add safeName, False
+            End If
+        End If
+    Next r
+    
+    ' Pass 1: Changes Detected
+    For r = 1 To UBound(dataArr, 1)
+        person = Trim$(CStr(dataArr(r, personCol)))
+        If Len(person) = 0 Then GoTo NextRY
+        
+        safeName = MakeSafeSheetName(person)
+        Set wsP = wb.Worksheets(safeName)
+        
+        includeFlag = UCase$(Trim$(CStr(dataArr(r, includeCol))))
+        forecastSource = UCase$(Trim$(CStr(dataArr(r, forecastSourceCol))))
+        
+        If forecastSource <> "PREVIOUS" And includeFlag = "Y" Then
+            targetRow = CLng(dictNextY(safeName))
+            wsP.Range(wsP.Cells(targetRow, 1), wsP.Cells(targetRow, lastCol)).Value = _
+                GetRowAs2D(dataArr, r, lastCol)
+            dictNextY(safeName) = targetRow + 1
+        End If
+        
+NextRY:
+    Next r
+    
+    ' Pass 2: Closed Opportunities
+    For r = 1 To UBound(dataArr, 1)
+        person = Trim$(CStr(dataArr(r, personCol)))
+        If Len(person) = 0 Then GoTo NextRC
+        
+        safeName = MakeSafeSheetName(person)
+        Set wsP = wb.Worksheets(safeName)
+        
+        forecastSource = UCase$(Trim$(CStr(dataArr(r, forecastSourceCol))))
+        
+        If forecastSource = "PREVIOUS" Then
+            If Not CBool(dictClosedStarted(safeName)) Then
+                startClosedRow = CLng(dictNextY(safeName)) + 1
+                
+                With wsP.Cells(startClosedRow, 1)
+                    .Value = "Closed Opportunities"
+                    .Font.Bold = True
+                    .Font.Size = 16
+                End With
+                
+                wsP.Range(wsP.Cells(startClosedRow + 1, 1), wsP.Cells(startClosedRow + 1, lastCol)).Value = headerArr
+                
+                dictNextClosed.Add safeName, startClosedRow + 2
+                dictClosedStarted(safeName) = True
+            End If
+            
+            targetRow = CLng(dictNextClosed(safeName))
+            wsP.Range(wsP.Cells(targetRow, 1), wsP.Cells(targetRow, lastCol)).Value = _
+                GetRowAs2D(dataArr, r, lastCol)
+            dictNextClosed(safeName) = targetRow + 1
+        End If
+        
+NextRC:
+    Next r
+    
+    ' Pass 3: No Changes Detected
+    For r = 1 To UBound(dataArr, 1)
+        person = Trim$(CStr(dataArr(r, personCol)))
+        If Len(person) = 0 Then GoTo NextRN
+        
+        safeName = MakeSafeSheetName(person)
+        Set wsP = wb.Worksheets(safeName)
+        
+        includeFlag = UCase$(Trim$(CStr(dataArr(r, includeCol))))
+        forecastSource = UCase$(Trim$(CStr(dataArr(r, forecastSourceCol))))
+        
+        If forecastSource <> "PREVIOUS" And includeFlag = "N" Then
+            If Not CBool(dictNStarted(safeName)) Then
+                If CBool(dictClosedStarted(safeName)) Then
+                    startNRow = CLng(dictNextClosed(safeName)) + 1
+                Else
+                    startNRow = CLng(dictNextY(safeName)) + 1
+                End If
+                
+                With wsP.Cells(startNRow, 1)
+                    .Value = "No Changes Detected"
+                    .Font.Bold = True
+                    .Font.Size = 16
+                End With
+                
+                wsP.Range(wsP.Cells(startNRow + 1, 1), wsP.Cells(startNRow + 1, lastCol)).Value = headerArr
+                
+                dictNextN.Add safeName, startNRow + 2
+                dictNStarted(safeName) = True
+            End If
+            
+            targetRow = CLng(dictNextN(safeName))
+            wsP.Range(wsP.Cells(targetRow, 1), wsP.Cells(targetRow, lastCol)).Value = _
+                GetRowAs2D(dataArr, r, lastCol)
+            dictNextN(safeName) = targetRow + 1
+        End If
+        
+NextRN:
+    Next r
+    
+    Call CleanDistributedSheets(dictSheets)
+    Call BuildDistributionSummary(dictSheets)
+    GoTo CleanExit
+
+CleanExit:
+    Application.ScreenUpdating = True
+    Application.EnableEvents = True
+    Application.Calculation = xlCalculationAutomatic
+    Exit Sub
+
+CleanFail:
+    Application.ScreenUpdating = True
+    Application.EnableEvents = True
+    Application.Calculation = xlCalculationAutomatic
+    MsgBox "Distribution failed: " & Err.Description, vbExclamation
+End Sub
+
+Private Function FindHeaderColumn(ByVal ws As Worksheet, ByVal headerText As String) As Long
+    Dim lastCol As Long
+    Dim c As Long
+    
+    lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
+    
+    For c = 1 To lastCol
+        If Trim$(CStr(ws.Cells(1, c).Value)) = headerText Then
+            FindHeaderColumn = c
+            Exit Function
+        End If
+    Next c
+    
+    FindHeaderColumn = 0
+End Function
+
+Private Function GetOrCreateSheet(ByVal wb As Workbook, ByVal sheetName As String) As Worksheet
+    On Error Resume Next
+    Set GetOrCreateSheet = wb.Worksheets(sheetName)
+    On Error GoTo 0
+    
+    If GetOrCreateSheet Is Nothing Then
+        Set GetOrCreateSheet = wb.Worksheets.Add(After:=wb.Worksheets(wb.Worksheets.Count))
+        GetOrCreateSheet.Name = sheetName
+    End If
+End Function
+
+Private Function MakeSafeSheetName(ByVal rawName As String) As String
+    Dim badChars As Variant, ch As Variant
+    Dim s As String
+    
+    s = Trim$(rawName)
+    badChars = Array("\", "/", "?", "*", "[", "]", ":", "'")
+    
+    For Each ch In badChars
+        s = Replace$(s, CStr(ch), " ")
+    Next ch
+    
+    Do While InStr(s, "  ") > 0
+        s = Replace$(s, "  ", " ")
+    Loop
+    
+    s = Trim$(s)
+    If Len(s) = 0 Then s = "Unknown"
+    If Len(s) > 31 Then s = Left$(s, 31)
+    If Right$(s, 1) = "'" Then s = Left$(s, Len(s) - 1)
+    
+    MakeSafeSheetName = s
+End Function
+
+Private Function GetRowAs2D(ByRef dataArr As Variant, ByVal r As Long, ByVal lastCol As Long) As Variant
+    Dim outArr() As Variant
+    Dim c As Long
+    
+    ReDim outArr(1 To 1, 1 To lastCol)
+    
+    For c = 1 To lastCol
+        outArr(1, c) = dataArr(r, c)
+    Next c
+    
+    GetRowAs2D = outArr
+End Function
+
+Private Sub AddTopAnalyticsLayout(ByVal ws As Worksheet)
+    ws.Range("A1:H9").Clear
+
+    ws.Range("A1").Value = "Opportunities By Stage"
+    ws.Range("C1").Value = "Number of Opps in Risk Status"
+    ws.Range("E1").Value = "Number of Opps in Cancellation Probability"
+    ws.Range("G1").Value = "Number of Opps in Risk Total"
+
+    ws.Range("A1,C1,E1,G1,G3").Font.Bold = True
+
+    ws.Range("A2").Value = "Stage 1"
+    ws.Range("A3").Value = "Stage 2"
+    ws.Range("A4").Value = "Stage 3"
+    ws.Range("A5").Value = "Stage 4"
+    ws.Range("A6").Value = "Stage 5"
+    ws.Range("A7").Value = "Stage 6"
+    ws.Range("A8").Value = "Stage 7"
+
+    ws.Range("C2").Value = "In Progress"
+    ws.Range("C3").Value = "Saved"
+    ws.Range("C4").Value = "Lost"
+
+    ws.Range("E2").Value = "Info Only"
+    ws.Range("E3").Value = "Suspected"
+    ws.Range("E4").Value = "Expected"
+    ws.Range("E5").Value = "Confirmed"
+
+    ws.Range("G3").Value = "GIDB Date and Expected Don't Match"
+
+    ws.Range("A1:H9").VerticalAlignment = xlCenter
+End Sub
+
+Private Sub BuildDistributionSummary(ByVal dictSheets As Object)
+    Dim wsSum As Worksheet
+    Dim key As Variant
+    Dim wsP As Worksheet
+    
+    On Error Resume Next
+    Set wsSum = ThisWorkbook.Worksheets("Dashboard")
+    On Error GoTo 0
+    
+    If wsSum Is Nothing Then
+        MsgBox "Dashboard sheet was not found. Please create a sheet named Dashboard and run again.", vbExclamation
+        Exit Sub
+    End If
+    
+    wsSum.Range("A1:H9").Clear
+    
+    AddTopAnalyticsLayout wsSum
+    
+    For Each key In dictSheets.Keys
+        Set wsP = ThisWorkbook.Worksheets(CStr(key))
+        
+        wsSum.Range("B2").Value = Val(wsSum.Range("B2").Value) + Val(wsP.Range("B2").Value)
+        wsSum.Range("B3").Value = Val(wsSum.Range("B3").Value) + Val(wsP.Range("B3").Value)
+        wsSum.Range("B4").Value = Val(wsSum.Range("B4").Value) + Val(wsP.Range("B4").Value)
+        wsSum.Range("B5").Value = Val(wsSum.Range("B5").Value) + Val(wsP.Range("B5").Value)
+        wsSum.Range("B6").Value = Val(wsSum.Range("B6").Value) + Val(wsP.Range("B6").Value)
+        wsSum.Range("B7").Value = Val(wsSum.Range("B7").Value) + Val(wsP.Range("B7").Value)
+        wsSum.Range("B8").Value = Val(wsSum.Range("B8").Value) + Val(wsP.Range("B8").Value)
+        
+        wsSum.Range("D2").Value = Val(wsSum.Range("D2").Value) + Val(wsP.Range("D2").Value)
+        wsSum.Range("D3").Value = Val(wsSum.Range("D3").Value) + Val(wsP.Range("D3").Value)
+        wsSum.Range("D4").Value = Val(wsSum.Range("D4").Value) + Val(wsP.Range("D4").Value)
+        
+        wsSum.Range("F2").Value = Val(wsSum.Range("F2").Value) + Val(wsP.Range("F2").Value)
+        wsSum.Range("F3").Value = Val(wsSum.Range("F3").Value) + Val(wsP.Range("F3").Value)
+        wsSum.Range("F4").Value = Val(wsSum.Range("F4").Value) + Val(wsP.Range("F4").Value)
+        wsSum.Range("F5").Value = Val(wsSum.Range("F5").Value) + Val(wsP.Range("F5").Value)
+    Next key
+    
+    With wsSum.Range("H1")
+        .Formula = "=SUM(F2:F5)"
+        .HorizontalAlignment = xlLeft
+        .Font.Bold = True
+    End With
+    
+    Application.Calculate
+
+    wsSum.Columns("A:H").AutoFit
+    
+    wsSum.Columns("B").ColumnWidth = wsSum.Columns("B").ColumnWidth + 2
+    wsSum.Columns("D").ColumnWidth = wsSum.Columns("D").ColumnWidth + 2
+    wsSum.Columns("F").ColumnWidth = wsSum.Columns("F").ColumnWidth + 2
+    wsSum.Columns("H").ColumnWidth = wsSum.Columns("H").ColumnWidth + 2
+End Sub
