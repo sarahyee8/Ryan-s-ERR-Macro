@@ -1,0 +1,406 @@
+Option Explicit
+
+Public Sub CleanDistributedSheets(ByVal dictSheets As Object)
+    Dim key As Variant
+    Dim ws As Worksheet
+    
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    Application.Calculation = xlCalculationManual
+    
+    On Error GoTo CleanFail
+    
+    For Each key In dictSheets.Keys
+        Set ws = ThisWorkbook.Worksheets(CStr(key))
+        FormatPersonSheet ws
+    Next key
+    
+CleanExit:
+    Application.ScreenUpdating = True
+    Application.EnableEvents = True
+    Application.Calculation = xlCalculationAutomatic
+    Exit Sub
+    
+CleanFail:
+    Application.ScreenUpdating = True
+    Application.EnableEvents = True
+    Application.Calculation = xlCalculationAutomatic
+    MsgBox "Cleanup failed: " & Err.Description, vbExclamation
+End Sub
+
+Private Sub FormatPersonSheet(ByVal ws As Worksheet)
+    Dim keepCols As Variant
+    Dim section1HeaderRow As Long, section1DataStart As Long, section1LastRow As Long
+    Dim section2TitleRow As Long, section2HeaderRow As Long, section2DataStart As Long, section2LastRow As Long
+    Dim section3TitleRow As Long, section3HeaderRow As Long, section3DataStart As Long, section3LastRow As Long
+    Dim lastRow As Long
+    Dim oldTable As ListObject
+    
+    ws.Cells.UnMerge
+    
+    On Error Resume Next
+    For Each oldTable In ws.ListObjects
+        oldTable.Delete
+    Next oldTable
+    On Error GoTo 0
+    
+    keepCols = Array("O", "BJ", "BK", "D", "G", "Q", "F", "E", "K", "I", _
+                     "AC", "AD", "AA", "U", "W", "BU", "CJ", "CM", "CG", "CN", _
+                     "Y", "Z", "CO")
+    
+    lastRow = LastUsedRow(ws)
+    If lastRow = 0 Then Exit Sub
+    
+    section1HeaderRow = 11
+    section1DataStart = 12
+    
+    section2TitleRow = FindRowByTextInColA(ws, "Closed Opportunities")
+    section3TitleRow = FindRowByTextInColA(ws, "No Changes Detected")
+    
+    If section2TitleRow > 0 Then
+        section1LastRow = section2TitleRow - 1
+    ElseIf section3TitleRow > 0 Then
+        section1LastRow = section3TitleRow - 1
+    Else
+        section1LastRow = lastRow
+    End If
+    
+    Do While section1LastRow > section1HeaderRow And _
+             Application.WorksheetFunction.CountA(ws.Rows(section1LastRow)) = 0
+        section1LastRow = section1LastRow - 1
+    Loop
+    
+    If section1LastRow >= section1HeaderRow Then
+        RebuildSection ws, section1HeaderRow, section1DataStart, section1LastRow, keepCols, "tblChanges_" & SafeTableName(ws.Name)
+    End If
+    
+    section2TitleRow = FindRowByTextInColA(ws, "Closed Opportunities")
+    section3TitleRow = FindRowByTextInColA(ws, "No Changes Detected")
+    
+    If section2TitleRow > 0 Then
+        section2HeaderRow = section2TitleRow + 1
+        section2DataStart = section2TitleRow + 2
+        
+        If section3TitleRow > 0 Then
+            section2LastRow = section3TitleRow - 1
+        Else
+            section2LastRow = LastUsedRow(ws)
+        End If
+        
+        Do While section2LastRow > section2HeaderRow And _
+                 Application.WorksheetFunction.CountA(ws.Rows(section2LastRow)) = 0
+            section2LastRow = section2LastRow - 1
+        Loop
+        
+        If section2LastRow >= section2HeaderRow Then
+            RebuildSection ws, section2HeaderRow, section2DataStart, section2LastRow, keepCols, "tblClosed_" & SafeTableName(ws.Name)
+        End If
+    End If
+    
+    section3TitleRow = FindRowByTextInColA(ws, "No Changes Detected")
+    
+    If section3TitleRow > 0 Then
+        section3HeaderRow = section3TitleRow + 1
+        section3DataStart = section3TitleRow + 2
+        section3LastRow = LastUsedRow(ws)
+        
+        Do While section3LastRow > section3HeaderRow And _
+                 Application.WorksheetFunction.CountA(ws.Rows(section3LastRow)) = 0
+            section3LastRow = section3LastRow - 1
+        Loop
+        
+        If section3LastRow >= section3HeaderRow Then
+            RebuildSection ws, section3HeaderRow, section3DataStart, section3LastRow, keepCols, "tblNoChanges_" & SafeTableName(ws.Name)
+        End If
+    End If
+
+    PopulateStageAnalytics ws
+    PopulateRiskStatusAnalytics ws
+    PopulateCancellationAnalytics ws
+    
+    FormatFinalPersonSheetColumns ws
+End Sub
+
+Private Sub RebuildSection(ByVal ws As Worksheet, _
+                           ByVal headerRow As Long, ByVal dataStartRow As Long, ByVal dataLastRow As Long, _
+                           ByVal keepCols As Variant, ByVal tableName As String)
+    
+    Dim outArr() As Variant
+    Dim i As Long, j As Long
+    Dim srcColNum As Long
+    Dim rowCount As Long, colCount As Long
+    Dim destStartCol As Long
+    Dim lo As ListObject
+    Dim rngTable As Range
+    Dim clearLastCol As Long
+    Dim commentsCol As Long
+    
+    If dataLastRow < headerRow Then Exit Sub
+    
+    rowCount = dataLastRow - headerRow + 1
+    colCount = UBound(keepCols) - LBound(keepCols) + 1
+    commentsCol = colCount + 1
+    
+    ReDim outArr(1 To rowCount, 1 To colCount + 1)
+    
+    For j = 1 To colCount
+        srcColNum = ColumnLetterToNumber(CStr(keepCols(j - 1)))
+        outArr(1, j) = ws.Cells(headerRow, srcColNum).Value
+    Next j
+    
+    outArr(1, commentsCol) = "Comments"
+    
+    If dataLastRow >= dataStartRow Then
+        For i = 2 To rowCount
+            For j = 1 To colCount
+                srcColNum = ColumnLetterToNumber(CStr(keepCols(j - 1)))
+                outArr(i, j) = ws.Cells(headerRow + i - 1, srcColNum).Value
+            Next j
+            
+            outArr(i, commentsCol) = ""
+        Next i
+    End If
+    
+    clearLastCol = ws.Cells(headerRow, ws.Columns.Count).End(xlToLeft).Column
+    ws.Range(ws.Cells(headerRow, 1), ws.Cells(dataLastRow, clearLastCol)).Clear
+    
+    destStartCol = 1
+    ws.Range(ws.Cells(headerRow, destStartCol), ws.Cells(headerRow + rowCount - 1, destStartCol + colCount)).Value = outArr
+    
+    Set rngTable = ws.Range(ws.Cells(headerRow, destStartCol), ws.Cells(headerRow + rowCount - 1, destStartCol + colCount))
+    
+    ApplyBorders rngTable
+    
+    AddOppIDHyperlinks ws, headerRow + 1, headerRow + rowCount - 1, 4
+    
+    If rngTable.Rows.Count >= 1 And rngTable.Columns.Count >= 1 Then
+        Set lo = ws.ListObjects.Add(xlSrcRange, rngTable, , xlYes)
+        
+        On Error Resume Next
+        lo.Name = tableName
+        On Error GoTo 0
+        
+        With lo
+            .TableStyle = "TableStyleMedium2"
+            .ShowTableStyleRowStripes = True
+            .ShowTableStyleColumnStripes = False
+        End With
+    End If
+End Sub
+
+Private Sub AddOppIDHyperlinks(ByVal ws As Worksheet, ByVal firstDataRow As Long, ByVal lastDataRow As Long, ByVal oppIDCol As Long)
+    Dim r As Long
+    Dim oppID As String
+    Dim linkAddress As String
+    
+    If lastDataRow < firstDataRow Then Exit Sub
+    
+    For r = firstDataRow To lastDataRow
+        oppID = Trim$(CStr(ws.Cells(r, oppIDCol).Value))
+        
+        If Len(oppID) > 0 Then
+            ws.Cells(r, oppIDCol).Hyperlinks.Delete
+            
+            linkAddress = "https://orion.sas.com/opportunities/" & oppID & "/overview"
+            
+            ws.Hyperlinks.Add Anchor:=ws.Cells(r, oppIDCol), _
+                              Address:=linkAddress, _
+                              TextToDisplay:=oppID
+        End If
+    Next r
+End Sub
+
+Private Sub FormatFinalPersonSheetColumns(ByVal ws As Worksheet)
+    Dim commentsCol As Long
+    
+    ws.Columns.AutoFit
+    
+    ws.Columns("D").ColumnWidth = 18
+    
+    commentsCol = FindAnyHeaderColumn(ws, "Comments")
+    
+    If commentsCol > 0 Then
+        With ws.Columns(commentsCol)
+            .ColumnWidth = 45
+            .WrapText = True
+            .VerticalAlignment = xlTop
+        End With
+    End If
+    
+    ws.Columns.AutoFit
+    
+    If commentsCol > 0 Then
+        ws.Columns(commentsCol).ColumnWidth = 45
+    End If
+End Sub
+
+Private Function FindAnyHeaderColumn(ByVal ws As Worksheet, ByVal headerText As String) As Long
+    Dim r As Long
+    Dim c As Long
+    Dim lastCol As Long
+    
+    For r = 1 To LastUsedRow(ws)
+        lastCol = ws.Cells(r, ws.Columns.Count).End(xlToLeft).Column
+        
+        For c = 1 To lastCol
+            If Trim$(CStr(ws.Cells(r, c).Value)) = headerText Then
+                FindAnyHeaderColumn = c
+                Exit Function
+            End If
+        Next c
+    Next r
+    
+    FindAnyHeaderColumn = 0
+End Function
+
+Private Sub ApplyBorders(ByVal rng As Range)
+    With rng.Borders
+        .LineStyle = xlContinuous
+        .Weight = xlThin
+    End With
+End Sub
+
+Private Function FindRowByTextInColA(ByVal ws As Worksheet, ByVal findText As String) As Long
+    Dim lastRow As Long
+    Dim r As Long
+    
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    
+    For r = 1 To lastRow
+        If Trim$(CStr(ws.Cells(r, 1).Value)) = findText Then
+            FindRowByTextInColA = r
+            Exit Function
+        End If
+    Next r
+    
+    FindRowByTextInColA = 0
+End Function
+
+Private Function LastUsedRow(ByVal ws As Worksheet) As Long
+    Dim lastCell As Range
+    
+    On Error Resume Next
+    Set lastCell = ws.Cells.Find(What:="*", After:=ws.Cells(1, 1), LookIn:=xlFormulas, _
+                                 LookAt:=xlPart, SearchOrder:=xlByRows, SearchDirection:=xlPrevious)
+    On Error GoTo 0
+    
+    If lastCell Is Nothing Then
+        LastUsedRow = 0
+    Else
+        LastUsedRow = lastCell.Row
+    End If
+End Function
+
+Private Function ColumnLetterToNumber(ByVal colLetter As String) As Long
+    ColumnLetterToNumber = Range(UCase$(colLetter) & "1").Column
+End Function
+
+Private Function SafeTableName(ByVal s As String) As String
+    Dim i As Long
+    Dim ch As String
+    Dim outStr As String
+    
+    For i = 1 To Len(s)
+        ch = Mid$(s, i, 1)
+        If ch Like "[A-Za-z0-9_]" Then
+            outStr = outStr & ch
+        Else
+            outStr = outStr & "_"
+        End If
+    Next i
+    
+    If Len(outStr) = 0 Then outStr = "Sheet"
+    SafeTableName = outStr
+End Function
+
+Private Sub PopulateStageAnalytics(ByVal ws As Worksheet)
+    Dim stageNum As Long
+    Dim stageText As String
+    Dim lastRow As Long
+    Dim r As Long
+    Dim countStage As Long
+    
+    lastRow = LastUsedRow(ws)
+    If lastRow = 0 Then Exit Sub
+    
+    For stageNum = 1 To 7
+        countStage = 0
+        stageText = "STAGE " & stageNum
+        
+        For r = 12 To lastRow
+            If UCase$(Trim$(CStr(ws.Cells(r, "J").Value))) = stageText Then
+                countStage = countStage + 1
+            End If
+        Next r
+        
+        ws.Cells(stageNum + 1, "B").Value = countStage
+    Next stageNum
+End Sub
+
+Private Sub PopulateRiskStatusAnalytics(ByVal ws As Worksheet)
+    Dim lastRow As Long
+    Dim r As Long
+    Dim statusText As String
+    Dim countInProgress As Long
+    Dim countSaved As Long
+    Dim countLost As Long
+    
+    lastRow = LastUsedRow(ws)
+    If lastRow = 0 Then Exit Sub
+    
+    For r = 12 To lastRow
+        statusText = UCase$(Trim$(CStr(ws.Cells(r, "N").Value)))
+        
+        Select Case statusText
+            Case "IN PROGRESS"
+                countInProgress = countInProgress + 1
+            Case "SAVED"
+                countSaved = countSaved + 1
+            Case "LOST"
+                countLost = countLost + 1
+        End Select
+    Next r
+    
+    ws.Range("D2").Value = countInProgress
+    ws.Range("D3").Value = countSaved
+    ws.Range("D4").Value = countLost
+End Sub
+
+Private Sub PopulateCancellationAnalytics(ByVal ws As Worksheet)
+    Dim lastRow As Long
+    Dim r As Long
+    Dim probText As String
+    Dim countInfoOnly As Long
+    Dim countSuspected As Long
+    Dim countExpected As Long
+    Dim countConfirmed As Long
+    
+    lastRow = LastUsedRow(ws)
+    If lastRow = 0 Then Exit Sub
+    
+    For r = 12 To lastRow
+        probText = UCase$(Trim$(CStr(ws.Cells(r, "O").Value)))
+        
+        Select Case probText
+            Case "INFO ONLY"
+                countInfoOnly = countInfoOnly + 1
+            Case "SUSPECTED"
+                countSuspected = countSuspected + 1
+            Case "EXPECTED"
+                countExpected = countExpected + 1
+            Case "CONFIRMED"
+                countConfirmed = countConfirmed + 1
+        End Select
+    Next r
+    
+    ws.Range("F2").Value = countInfoOnly
+    ws.Range("F3").Value = countSuspected
+    ws.Range("F4").Value = countExpected
+    ws.Range("F5").Value = countConfirmed
+    
+    With ws.Range("H1")
+        .Formula = "=SUM(F2:F5)"
+        .HorizontalAlignment = xlLeft
+        .Font.Bold = True
+    End With
+End Sub
